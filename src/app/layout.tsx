@@ -69,12 +69,25 @@ export const metadata: Metadata = {
     siteName: "MignonciteShop",
     locale: "fr_FR",
     type: "website",
+    images: [
+      {
+        url: "/og-image.jpg",
+        width: 1200,
+        height: 630,
+        alt: "MignonciteShop — Boutique en ligne premium",
+      },
+    ],
   },
   twitter: {
     card: "summary_large_image",
     title: "MignonciteShop — Boutique en ligne de produits de qualité",
     description:
       "MignonciteShop, votre boutique en ligne premium. Découvrez une sélection de produits de qualité, livraison rapide et paiement sécurisé.",
+    images: ["/og-image.jpg"],
+  },
+  icons: {
+    icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
+    apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180" }],
   },
 };
 

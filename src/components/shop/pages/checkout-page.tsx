@@ -33,6 +33,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useShopStore, selectCartTotal } from "@/lib/store";
 import { computePromo, validatePromo } from "@/lib/promos";
 import { trackEvent } from "@/lib/analytics";
@@ -217,6 +218,7 @@ export function CheckoutPage({ onNavigate }: CheckoutPageProps) {
 
   return (
     <CheckoutTunnel
+      onNavigate={onNavigate}
       onComplete={(snapshot) => {
         setOrder(snapshot);
       }}
@@ -230,9 +232,10 @@ export function CheckoutPage({ onNavigate }: CheckoutPageProps) {
 
 interface CheckoutTunnelProps {
   onComplete: (order: OrderSnapshot) => void;
+  onNavigate: (page: string) => void;
 }
 
-function CheckoutTunnel({ onComplete }: CheckoutTunnelProps) {
+function CheckoutTunnel({ onComplete, onNavigate }: CheckoutTunnelProps) {
   const cart = useShopStore((s) => s.cart);
   const subtotal = useShopStore(selectCartTotal);
   const promoCode = useShopStore((s) => s.promo);
@@ -249,6 +252,9 @@ function CheckoutTunnel({ onComplete }: CheckoutTunnelProps) {
   const [cardHolder, setCardHolder] = useState("");
   const [cardErrors, setCardErrors] = useState<Record<string, string>>({});
   const [processing, setProcessing] = useState(false);
+  const [cgvAccepted, setCgvAccepted] = useState(false);
+  const [cgvError, setCgvError] = useState(false);
+  const cgvRef = useRef<HTMLDivElement | null>(null);
   const paidRef = useRef(false);
 
   // L'instance vit dans ce composant : les valeurs saisies sont conservées
@@ -306,6 +312,17 @@ function CheckoutTunnel({ onComplete }: CheckoutTunnelProps) {
 
   function handlePay(): void {
     if (processing || paidRef.current || !info) return;
+
+    // Conformité art. L221-13 / L221-13-1 : acceptation expresse des CGV
+    // obligatoire AVANT toute commande (paiement bloqué sinon).
+    if (!cgvAccepted) {
+      setCgvError(true);
+      toast.error("Veuillez accepter les conditions générales de vente", {
+        description: "L'acceptation des CGV est requise pour finaliser votre commande.",
+      });
+      cgvRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
 
     // Vérification légère du format des champs de carte (mode démo).
     const errors: Record<string, string> = {};
@@ -845,7 +862,63 @@ function CheckoutTunnel({ onComplete }: CheckoutTunnelProps) {
                     </div>
                   )}
 
-                  <div className="mt-8 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-4">
+                  {/* Conformité : acceptation expresse des CGV avant commande
+                      (art. L221-13 Code de la consommation). */}
+                  <div
+                    ref={cgvRef}
+                    className={cn(
+                      "mt-8 flex items-start gap-3 rounded-xl border px-4 py-3.5 transition-colors",
+                      cgvError
+                        ? "border-destructive/60 bg-destructive/5"
+                        : "border-border bg-muted/30"
+                    )}
+                  >
+                    <Checkbox
+                      id="cgv-accept"
+                      checked={cgvAccepted}
+                      onCheckedChange={(checked) => {
+                        setCgvAccepted(checked === true);
+                        if (checked) setCgvError(false);
+                      }}
+                      aria-invalid={cgvError ? true : undefined}
+                      aria-describedby={cgvError ? "cgv-error" : undefined}
+                      className="mt-0.5"
+                    />
+                    <label
+                      htmlFor="cgv-accept"
+                      className="text-sm text-foreground/90 leading-relaxed cursor-pointer"
+                    >
+                      J&apos;accepte les{" "}
+                      <button
+                        type="button"
+                        onClick={() => onNavigate("cgv")}
+                        className="font-semibold text-[#C9A961] underline underline-offset-2 hover:text-[#b8994f]"
+                      >
+                        Conditions Générales de Vente
+                      </button>{" "}
+                      et je reconnais avoir pris connaissance de la politique de{" "}
+                      <button
+                        type="button"
+                        onClick={() => onNavigate("privacy")}
+                        className="font-semibold text-[#C9A961] underline underline-offset-2 hover:text-[#b8994f]"
+                      >
+                        confidentialité
+                      </button>
+                      , dont le droit de rétractation de 14 jours.
+                    </label>
+                  </div>
+                  {cgvError && (
+                    <p
+                      id="cgv-error"
+                      role="alert"
+                      className="mt-2 text-sm text-destructive"
+                    >
+                      Vous devez accepter les conditions générales de vente pour
+                      pouvoir commander.
+                    </p>
+                  )}
+
+                  <div className="mt-6 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-4">
                     <button
                       type="button"
                       onClick={() => setStep(2)}
@@ -854,11 +927,13 @@ function CheckoutTunnel({ onComplete }: CheckoutTunnelProps) {
                       <ArrowLeft className="w-4 h-4" aria-hidden="true" />
                       Retour
                     </button>
+                    {/* Menton légale art. L221-13-1 : le bouton porte la mention
+                        « commande avec paiement obligatoire ». */}
                     <button
                       type="button"
                       onClick={handlePay}
                       disabled={processing}
-                      className="inline-flex items-center justify-center gap-2 bg-[#C9A961] hover:bg-[#b8994f] text-white rounded-full px-8 py-3.5 font-semibold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                      className="inline-flex items-center justify-center gap-2 bg-[#C9A961] hover:bg-[#b8994f] text-white rounded-full px-6 sm:px-8 py-3.5 text-sm sm:text-base font-semibold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                     >
                       {processing ? (
                         <>
@@ -867,8 +942,13 @@ function CheckoutTunnel({ onComplete }: CheckoutTunnelProps) {
                         </>
                       ) : (
                         <>
-                          <Lock className="w-4 h-4" aria-hidden="true" />
-                          Payer {priceLabel(total)}
+                          <Lock className="w-4 h-4 shrink-0" aria-hidden="true" />
+                          <span className="text-left leading-tight">
+                            Commander avec paiement obligatoire
+                            <span className="block sm:inline sm:ml-1.5 font-bold">
+                              {priceLabel(total)}
+                            </span>
+                          </span>
                         </>
                       )}
                     </button>
@@ -1053,7 +1133,9 @@ function SummarySidebar({
             Offerte dès {FREE_SHIPPING_THRESHOLD} € d&apos;achat.
           </p>
           <div className="border-t border-border pt-3 flex items-center justify-between">
-            <span className="font-semibold text-foreground">Total</span>
+            <span className="font-semibold text-foreground">
+              Total <span className="font-normal text-muted-foreground">(TTC)</span>
+            </span>
             <span className="text-lg font-bold text-[#C9A961]">
               {priceLabel(total)}
             </span>

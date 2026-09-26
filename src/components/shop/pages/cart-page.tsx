@@ -273,7 +273,9 @@ export function CartPage({ onNavigate }: CartPageProps) {
                   Offerte dès {FREE_SHIPPING_THRESHOLD}€ d&apos;achat.
                 </p>
                 <div className="border-t border-border pt-3 flex items-center justify-between">
-                  <span className="font-semibold text-foreground">Total</span>
+                  <span className="font-semibold text-foreground">
+                    Total <span className="font-normal text-muted-foreground">(TTC)</span>
+                  </span>
                   <span className="text-lg font-bold text-[#C9A961]">
                     {priceLabel(total)}
                   </span>
