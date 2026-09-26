@@ -1,0 +1,227 @@
+// Prisma schema — Clone MignonciteShop
+// SQLite: les listes primitives ne sont pas supportées → gallery/sizes/colors
+// sont stockées en STRINGS JSON (ex: '["S","M","L","XL"]').
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Catalogue
+// ---------------------------------------------------------------------------
+
+model Category {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String   @default("")
+  image       String   @default("")
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  products    Product[]
+}
+
+model Product {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String   @default("")
+  details     String   @default("")
+  price       Float
+  oldPrice    Float?
+  image       String
+  // STRING JSON (ex: '["/images/products/a.jpg","/images/products/b.jpg"]')
+  gallery     String   @default("[]")
+  categoryId  String
+  category    Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  stock       Int      @default(0)
+  rating      Float    @default(0)
+  reviewCount Int      @default(0)
+  soldCount   Int      @default(0)
+  isFeatured  Boolean  @default(false)
+  isNew       Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  // STRING JSON (ex: '["S","M"]')
+  sizes       String   @default("[]")
+  // STRING JSON (ex: '["Noir"]')
+  colors      String   @default("[]")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  reviews      Review[]
+  stockAlerts  StockAlert[]
+
+  @@index([categoryId])
+  @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Auth (NextAuth v4)
+// ---------------------------------------------------------------------------
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  password      String? // hash bcrypt
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  accounts      Account[]
+  sessions      Session[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ---------------------------------------------------------------------------
+// Marketing / contact
+// ---------------------------------------------------------------------------
+
+model NewsletterSubscriber {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  createdAt DateTime @default(now())
+}
+
+model ContactMessage {
+  id        String   @id @default(cuid())
+  name      String
+  email     String
+  subject   String?
+  message   String
+  createdAt DateTime @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// Commandes (B2C checkout) — schéma prêt pour POST /api/orders
+// ---------------------------------------------------------------------------
+
+model Order {
+  id             String      @id @default(cuid())
+  reference      String      @unique // ex: MC-7F3K2A
+  status         String      @default("pending") // pending | paid | shipped | delivered | cancelled
+  email          String
+  customerName   String
+  phone          String?
+  // Adresse de livraison dénormalisée (simplicité SQLite / une adresse par commande)
+  addressLine1   String
+  addressLine2   String?
+  postalCode     String
+  city           String
+  country        String      @default("France")
+  shippingMethod String      @default("standard") // standard | express | pickup
+  shippingCost   Float       @default(0)
+  subtotal       Float
+  discount       Float       @default(0)
+  total          Float
+  promoCode      String?
+  paymentMethod  String      @default("card") // card | paypal | transfer
+  paymentStatus  String      @default("unpaid") // unpaid | paid | refunded
+  notes          String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  items          OrderItem[]
+
+  @@index([email])
+  @@index([createdAt])
+  @@index([status])
+}
+
+model OrderItem {
+  id          String  @id @default(cuid())
+  orderId     String
+  order       Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId   String
+  productName String
+  image       String
+  unitPrice   Float
+  quantity    Int
+  size        String?
+  color       String?
+
+  @@index([orderId])
+}
+
+// ---------------------------------------------------------------------------
+// Avis clients vérifiés + alertes de réassort + codes promo
+// ---------------------------------------------------------------------------
+
+model Review {
+  id         String   @id @default(cuid())
+  productId  String
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  author     String
+  rating     Int // 1..5
+  title      String?
+  comment    String
+  isApproved Boolean  @default(false) // modération avant publication
+  helpful    Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  @@index([productId])
+  @@index([createdAt])
+}
+
+model StockAlert {
+  id        String   @id @default(cuid())
+  email     String
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  notified  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@unique([email, productId])
+  @@index([productId])
+}
+
+model PromoCode {
+  id          String    @id @default(cuid())
+  code        String    @unique
+  type        String // percent | freeship | amount
+  value       Float     @default(0)
+  minSubtotal Float     @default(0)
+  isActive    Boolean   @default(true)
+  expiresAt   DateTime?
+  usageCount  Int       @default(0)
+  maxUses     Int?
+  createdAt   DateTime  @default(now())
+}

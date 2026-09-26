@@ -1,0 +1,1343 @@
+"use client";
+
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type FormEvent,
+} from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { toast } from "sonner";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  ChevronDown,
+  CreditCard,
+  Info,
+  Loader2,
+  Lock,
+  Mail,
+  MapPin,
+  ReceiptText,
+  ShieldCheck,
+  ShoppingBag,
+  Store,
+  Tag,
+  Truck,
+  Wallet,
+  X,
+  Zap,
+} from "lucide-react";
+import { useShopStore, selectCartTotal } from "@/lib/store";
+import { computePromo, validatePromo } from "@/lib/promos";
+import { trackEvent } from "@/lib/analytics";
+import type {
+  CartItem,
+  CheckoutAddress,
+  OrderSnapshot,
+  PromoDefinition,
+  ShippingMethod,
+  ShippingOption,
+} from "@/lib/types";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { cn } from "@/lib/utils";
+
+/** Fidèle au site original : « 79.99 € » (point décimal). */
+function priceLabel(price: number): string {
+  return `${price.toFixed(2)} €`;
+}
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+const FREE_SHIPPING_THRESHOLD = 50;
+const STANDARD_SHIPPING_COST = 4.99;
+const EXPRESS_SHIPPING_COST = 9.99;
+const PICKUP_SHIPPING_COST = 2.99;
+
+const SHIPPING_OPTIONS: ShippingOption[] = [
+  {
+    id: "standard",
+    label: "Standard",
+    description: "Livraison à domicile suivie",
+    price: STANDARD_SHIPPING_COST,
+    eta: "2 à 5 jours ouvrés",
+  },
+  {
+    id: "express",
+    label: "Express",
+    description: "Livraison prioritaire à domicile",
+    price: EXPRESS_SHIPPING_COST,
+    eta: "24h à 48h",
+  },
+  {
+    id: "pickup",
+    label: "Point relais",
+    description: "Retrait en point relais",
+    price: PICKUP_SHIPPING_COST,
+    eta: "2 à 4 jours ouvrés",
+  },
+];
+
+const COUNTRIES = ["France", "Belgique", "Suisse", "Luxembourg"] as const;
+
+const STEPS = [
+  "Informations",
+  "Livraison",
+  "Paiement",
+  "Confirmation",
+] as const;
+
+/** standard = 0 si sous-total ≥ 50 € ou code promo livraison offerte, sinon 4.99 €. */
+function getShippingCost(
+  method: ShippingMethod,
+  subtotal: number,
+  freeShippingPromo: boolean
+): number {
+  if (method === "express") return EXPRESS_SHIPPING_COST;
+  if (method === "pickup") return PICKUP_SHIPPING_COST;
+  if (subtotal >= FREE_SHIPPING_THRESHOLD || freeShippingPromo) return 0;
+  return STANDARD_SHIPPING_COST;
+}
+
+/** Formatage « 1234 5678 9012 3456 » : espaces tous les 4 chiffres, 16 max. */
+function formatCardNumber(value: string): string {
+  const digits = value.replace(/\D/g, "").slice(0, 16);
+  return digits.replace(/(\d{4})(?=\d)/g, "$1 ");
+}
+
+/** Formatage « MM/AA » avec barre oblique automatique. */
+function formatExpiry(value: string): string {
+  const digits = value.replace(/\D/g, "").slice(0, 4);
+  if (digits.length <= 2) return digits;
+  return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+}
+
+/** Référence « MC-XXXXXX » : 6 caractères A-Z0-9 tirés de crypto.getRandomValues. */
+function generateOrderReference(): string {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  const bytes = new Uint8Array(6);
+  crypto.getRandomValues(bytes);
+  let code = "";
+  for (let i = 0; i < 6; i += 1) {
+    code += alphabet[bytes[i] % alphabet.length];
+  }
+  return `MC-${code}`;
+}
+
+const checkoutInfoSchema = z.object({
+  email: z.email("Veuillez saisir une adresse email valide."),
+  firstName: z
+    .string()
+    .trim()
+    .min(2, "Le prénom doit contenir au moins 2 caractères."),
+  lastName: z.string().trim().min(2, "Le nom doit contenir au moins 2 caractères."),
+  phone: z
+    .string()
+    .trim()
+    .regex(/^$|^[+0-9 ().-]{6,20}$/, "Numéro de téléphone invalide."),
+  line1: z
+    .string()
+    .trim()
+    .min(5, "Veuillez saisir votre adresse (5 caractères minimum)."),
+  line2: z.string().trim(),
+  postalCode: z
+    .string()
+    .regex(/^\d{5}$/, "Le code postal doit contenir exactement 5 chiffres."),
+  city: z.string().trim().min(2, "Veuillez saisir votre ville."),
+  country: z.enum(["France", "Belgique", "Suisse", "Luxembourg"]),
+});
+
+type CheckoutInfoValues = z.infer<typeof checkoutInfoSchema>;
+
+const emptySubscribe = () => () => {};
+
+interface CheckoutPageProps {
+  onNavigate: (page: string) => void;
+}
+
+export function CheckoutPage({ onNavigate }: CheckoutPageProps) {
+  const cart = useShopStore((s) => s.cart);
+  // Évite tout décalage d'hydratation : le panier vient du localStorage.
+  const mounted = useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false
+  );
+  const [order, setOrder] = useState<OrderSnapshot | null>(null);
+  const beginCheckoutFiredRef = useRef(false);
+
+  // begin_checkout : une seule fois, au premier affichage de l'étape 1.
+  useEffect(() => {
+    if (beginCheckoutFiredRef.current || !mounted || cart.length === 0) return;
+    beginCheckoutFiredRef.current = true;
+    trackEvent("begin_checkout");
+  }, [mounted, cart.length]);
+
+  if (!mounted) {
+    return <CheckoutSkeleton />;
+  }
+
+  // Étape 4 (Confirmation) : le snapshot existe → le panier vient d'être vidé.
+  if (order) {
+    return <ConfirmationView order={order} onNavigate={onNavigate} />;
+  }
+
+  if (cart.length === 0) {
+    return <EmptyCartView onNavigate={onNavigate} />;
+  }
+
+  return (
+    <CheckoutTunnel
+      onComplete={(snapshot) => {
+        setOrder(snapshot);
+      }}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Tunnel — étapes 1 à 3
+// ---------------------------------------------------------------------------
+
+interface CheckoutTunnelProps {
+  onComplete: (order: OrderSnapshot) => void;
+}
+
+function CheckoutTunnel({ onComplete }: CheckoutTunnelProps) {
+  const cart = useShopStore((s) => s.cart);
+  const subtotal = useShopStore(selectCartTotal);
+  const promoCode = useShopStore((s) => s.promo);
+  const setPromo = useShopStore((s) => s.setPromo);
+  const clearCart = useShopStore((s) => s.clearCart);
+
+  const [step, setStep] = useState(1);
+  const [info, setInfo] = useState<CheckoutInfoValues | null>(null);
+  const [shipping, setShipping] = useState<ShippingMethod>("standard");
+  const [payMethod, setPayMethod] = useState<"card" | "paypal">("card");
+  const [cardNumber, setCardNumber] = useState("");
+  const [cardExpiry, setCardExpiry] = useState("");
+  const [cardCvc, setCardCvc] = useState("");
+  const [cardHolder, setCardHolder] = useState("");
+  const [cardErrors, setCardErrors] = useState<Record<string, string>>({});
+  const [processing, setProcessing] = useState(false);
+  const paidRef = useRef(false);
+
+  // L'instance vit dans ce composant : les valeurs saisies sont conservées
+  // quand on revient d'une étape ultérieure.
+  const infoForm = useForm<CheckoutInfoValues>({
+    resolver: zodResolver(checkoutInfoSchema),
+    defaultValues: {
+      email: "",
+      firstName: "",
+      lastName: "",
+      phone: "",
+      line1: "",
+      line2: "",
+      postalCode: "",
+      city: "",
+      country: "France",
+    },
+    mode: "onTouched",
+  });
+
+  // Code promo persisté : revalidé à chaque rendu (ignoré silencieusement
+  // s'il n'est plus valable pour ce sous-total, sans être retiré du store).
+  const promoValidation = useMemo(
+    () => validatePromo(promoCode ?? "", subtotal),
+    [promoCode, subtotal]
+  );
+  const promo: PromoDefinition | null = promoValidation.ok
+    ? promoValidation.promo ?? null
+    : null;
+  const promoComp = useMemo(
+    () => computePromo(promo, subtotal),
+    [promo, subtotal]
+  );
+
+  const shippingCost = getShippingCost(shipping, subtotal, promoComp.freeShipping);
+  const total = round2(promoComp.discountedSubtotal + shippingCost);
+  const itemsCount = cart.reduce((sum, item) => sum + item.quantity, 0);
+
+  function handleInfoSubmit(values: CheckoutInfoValues): void {
+    setInfo(values);
+    setCardHolder((prev) =>
+      prev.trim().length > 0 ? prev : `${values.firstName} ${values.lastName}`.trim()
+    );
+    setStep(2);
+  }
+
+  function clearCardError(key: string): void {
+    setCardErrors((prev) => {
+      if (!(key in prev)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }
+
+  function handlePay(): void {
+    if (processing || paidRef.current || !info) return;
+
+    // Vérification légère du format des champs de carte (mode démo).
+    const errors: Record<string, string> = {};
+    const digits = cardNumber.replace(/\s/g, "");
+    if (!/^\d{16}$/.test(digits)) {
+      errors.number = "Le numéro de carte doit contenir 16 chiffres.";
+    }
+    if (!/^(0[1-9]|1[0-2])\/\d{2}$/.test(cardExpiry)) {
+      errors.expiry = "Date d'expiration invalide (format MM/AA).";
+    }
+    if (!/^\d{3}$/.test(cardCvc)) {
+      errors.cvc = "Le code de sécurité doit contenir 3 chiffres.";
+    }
+    if (cardHolder.trim().length < 2) {
+      errors.holder = "Veuillez saisir le nom du titulaire.";
+    }
+    if (Object.keys(errors).length > 0) {
+      setCardErrors(errors);
+      return;
+    }
+    setCardErrors({});
+    setProcessing(true);
+
+    // Paiement simulé : snapshot de la commande AVANT vidage du panier,
+    // puis clearCart() + setPromo(null) exécutés exactement une fois
+    // (garde paidRef + transition d'état via onComplete).
+    window.setTimeout(() => {
+      if (paidRef.current) return;
+      paidRef.current = true;
+      const address: CheckoutAddress = {
+        line1: info.line1,
+        line2: info.line2,
+        postalCode: info.postalCode,
+        city: info.city,
+        country: info.country,
+      };
+      const snapshot: OrderSnapshot = {
+        reference: generateOrderReference(),
+        email: info.email,
+        customerName: `${info.firstName} ${info.lastName}`.trim(),
+        items: cart.map((item) => ({ ...item })),
+        subtotal,
+        discount: promoComp.discount,
+        shippingCost,
+        total,
+        promoCode: promo?.code ?? null,
+        shippingMethod: shipping,
+        address,
+        createdAt: new Date().toISOString(),
+      };
+      trackEvent("purchase", { reference: snapshot.reference, total: snapshot.total });
+      clearCart();
+      setPromo(null);
+      setProcessing(false);
+      onComplete(snapshot);
+    }, 1200);
+  }
+
+  return (
+    <div className="bg-background flex-1 flex flex-col">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        <div className="mb-8">
+          <h1 className="text-3xl md:text-4xl font-bold text-foreground mb-2">
+            Finaliser ma commande
+          </h1>
+          <p className="text-muted-foreground inline-flex items-center gap-2">
+            <Lock className="w-4 h-4 text-[#C9A961]" aria-hidden="true" />
+            Paiement sécurisé — commande en tant qu&apos;invité, aucun compte
+            requis.
+          </p>
+        </div>
+
+        <Stepper current={step} />
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <section className="lg:col-span-2">
+            <div className="bg-card rounded-2xl border p-6 sm:p-8">
+              {step === 1 && (
+                <Form {...infoForm}>
+                  <form
+                    onSubmit={infoForm.handleSubmit(handleInfoSubmit)}
+                    noValidate
+                  >
+                    <h2 className="text-xl font-semibold text-foreground">
+                      Vos informations
+                    </h2>
+                    <p className="text-sm text-muted-foreground mt-1 mb-6">
+                      Ces coordonnées servent à préparer votre commande et à
+                      vous tenir informé de sa livraison.
+                    </p>
+                    <div className="grid gap-5">
+                      <FormField
+                        control={infoForm.control}
+                        name="email"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Email</FormLabel>
+                            <FormControl>
+                              <Input
+                                type="email"
+                                autoComplete="email"
+                                placeholder="vous@exemple.com"
+                                {...field}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <div className="grid gap-5 sm:grid-cols-2">
+                        <FormField
+                          control={infoForm.control}
+                          name="firstName"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Prénom</FormLabel>
+                              <FormControl>
+                                <Input
+                                  autoComplete="given-name"
+                                  placeholder="Camille"
+                                  {...field}
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={infoForm.control}
+                          name="lastName"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Nom</FormLabel>
+                              <FormControl>
+                                <Input
+                                  autoComplete="family-name"
+                                  placeholder="Durand"
+                                  {...field}
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                      <FormField
+                        control={infoForm.control}
+                        name="phone"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>
+                              Téléphone{" "}
+                              <span className="font-normal text-muted-foreground">
+                                (facultatif)
+                              </span>
+                            </FormLabel>
+                            <FormControl>
+                              <Input
+                                type="tel"
+                                autoComplete="tel"
+                                placeholder="+33 6 12 34 56 78"
+                                {...field}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <div className="border-t border-border/60 pt-5">
+                        <h3 className="font-semibold text-foreground mb-1">
+                          Adresse de livraison
+                        </h3>
+                        <p className="text-sm text-muted-foreground">
+                          Où souhaitez-vous recevoir votre commande ?
+                        </p>
+                      </div>
+                      <FormField
+                        control={infoForm.control}
+                        name="line1"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Adresse</FormLabel>
+                            <FormControl>
+                              <Input
+                                autoComplete="address-line1"
+                                placeholder="12 rue des Lilas"
+                                {...field}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={infoForm.control}
+                        name="line2"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>
+                              Complément d&apos;adresse{" "}
+                              <span className="font-normal text-muted-foreground">
+                                (facultatif)
+                              </span>
+                            </FormLabel>
+                            <FormControl>
+                              <Input
+                                autoComplete="address-line2"
+                                placeholder="Appartement 4B, bâtiment B"
+                                {...field}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <div className="grid gap-5 sm:grid-cols-2">
+                        <FormField
+                          control={infoForm.control}
+                          name="postalCode"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Code postal</FormLabel>
+                              <FormControl>
+                                <Input
+                                  inputMode="numeric"
+                                  autoComplete="postal-code"
+                                  placeholder="75011"
+                                  maxLength={5}
+                                  {...field}
+                                  onChange={(event) =>
+                                    field.onChange(
+                                      event.target.value.replace(/\D/g, "").slice(0, 5)
+                                    )
+                                  }
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={infoForm.control}
+                          name="city"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Ville</FormLabel>
+                              <FormControl>
+                                <Input
+                                  autoComplete="address-level2"
+                                  placeholder="Paris"
+                                  {...field}
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                      <FormField
+                        control={infoForm.control}
+                        name="country"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Pays</FormLabel>
+                            <Select
+                              onValueChange={field.onChange}
+                              value={field.value}
+                            >
+                              <FormControl>
+                                <SelectTrigger className="w-full">
+                                  <SelectValue placeholder="Sélectionnez votre pays" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                {COUNTRIES.map((country) => (
+                                  <SelectItem key={country} value={country}>
+                                    {country}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                    <div className="mt-8 flex justify-end">
+                      <button
+                        type="submit"
+                        className="inline-flex items-center justify-center gap-2 bg-[#C9A961] hover:bg-[#b8994f] text-white rounded-full px-8 py-3.5 font-semibold transition-colors"
+                      >
+                        Continuer vers la livraison
+                        <ArrowRight className="w-4 h-4" aria-hidden="true" />
+                      </button>
+                    </div>
+                  </form>
+                </Form>
+              )}
+
+              {step === 2 && (
+                <div>
+                  <h2 className="text-xl font-semibold text-foreground">
+                    Mode de livraison
+                  </h2>
+                  <p className="text-sm text-muted-foreground mt-1 mb-6">
+                    Choisissez la livraison qui vous convient.
+                  </p>
+                  <RadioGroup
+                    value={shipping}
+                    onValueChange={(value) => setShipping(value as ShippingMethod)}
+                    aria-label="Mode de livraison"
+                    className="gap-4"
+                  >
+                    {SHIPPING_OPTIONS.map((option) => {
+                      const selected = shipping === option.id;
+                      const isFree =
+                        option.id === "standard" &&
+                        getShippingCost("standard", subtotal, promoComp.freeShipping) === 0;
+                      const Icon =
+                        option.id === "express"
+                          ? Zap
+                          : option.id === "pickup"
+                            ? Store
+                            : Truck;
+                      return (
+                        <label
+                          key={option.id}
+                          htmlFor={`shipping-${option.id}`}
+                          className={cn(
+                            "flex items-center gap-4 rounded-2xl border p-4 sm:p-5 cursor-pointer transition-all",
+                            selected
+                              ? "border-[#C9A961] ring-2 ring-[#C9A961]/25 bg-[#C9A961]/5"
+                              : "border-border hover:border-[#C9A961]/50"
+                          )}
+                        >
+                          <RadioGroupItem
+                            value={option.id}
+                            id={`shipping-${option.id}`}
+                          />
+                          <span className="w-10 h-10 rounded-full bg-[#C9A961]/10 flex items-center justify-center shrink-0">
+                            <Icon className="w-5 h-5 text-[#C9A961]" aria-hidden="true" />
+                          </span>
+                          <span className="flex-1 min-w-0">
+                            <span className="block font-semibold text-foreground">
+                              {option.label}
+                            </span>
+                            <span className="block text-sm text-muted-foreground">
+                              {option.description}
+                            </span>
+                            {option.id === "standard" && (
+                              <span className="block text-xs text-muted-foreground/80 mt-0.5">
+                                Offerte dès {FREE_SHIPPING_THRESHOLD} € d&apos;achat
+                              </span>
+                            )}
+                          </span>
+                          <span className="text-right shrink-0">
+                            {isFree ? (
+                              <span className="block font-semibold text-green-600 dark:text-green-400">
+                                Offerte
+                              </span>
+                            ) : (
+                              <span className="block font-semibold text-foreground">
+                                {priceLabel(option.price)}
+                              </span>
+                            )}
+                            <span className="block text-xs text-muted-foreground mt-0.5">
+                              {option.eta}
+                            </span>
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </RadioGroup>
+                  <div className="mt-8 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-4">
+                    <button
+                      type="button"
+                      onClick={() => setStep(1)}
+                      className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-[#C9A961] transition-colors self-start sm:self-auto"
+                    >
+                      <ArrowLeft className="w-4 h-4" aria-hidden="true" />
+                      Retour
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setStep(3)}
+                      className="inline-flex items-center justify-center gap-2 bg-[#C9A961] hover:bg-[#b8994f] text-white rounded-full px-8 py-3.5 font-semibold transition-colors"
+                    >
+                      Continuer vers le paiement
+                      <ArrowRight className="w-4 h-4" aria-hidden="true" />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {step === 3 && (
+                <div>
+                  <h2 className="text-xl font-semibold text-foreground">
+                    Paiement
+                  </h2>
+                  <p className="text-sm text-muted-foreground mt-1 mb-4">
+                    Vos données bancaires sont simulées et ne quittent jamais
+                    votre navigateur.
+                  </p>
+                  <div className="flex items-start gap-2.5 rounded-xl border border-[#C9A961]/30 bg-[#C9A961]/10 px-4 py-3 text-sm text-foreground/80">
+                    <Info className="w-4 h-4 text-[#C9A961] mt-0.5 shrink-0" aria-hidden="true" />
+                    <span>
+                      Mode démo — aucun débit réel, le paiement Stripe arrivera
+                      avec le backend.
+                    </span>
+                  </div>
+
+                  <RadioGroup
+                    value={payMethod}
+                    onValueChange={(value) => setPayMethod(value as "card" | "paypal")}
+                    aria-label="Moyen de paiement"
+                    className="mt-6 gap-4 sm:grid sm:grid-cols-2"
+                  >
+                    <label
+                      htmlFor="payment-card"
+                      className={cn(
+                        "flex items-center gap-4 rounded-2xl border p-4 sm:p-5 cursor-pointer transition-all",
+                        payMethod === "card"
+                          ? "border-[#C9A961] ring-2 ring-[#C9A961]/25 bg-[#C9A961]/5"
+                          : "border-border hover:border-[#C9A961]/50"
+                      )}
+                    >
+                      <RadioGroupItem value="card" id="payment-card" />
+                      <span className="w-10 h-10 rounded-full bg-[#C9A961]/10 flex items-center justify-center shrink-0">
+                        <CreditCard className="w-5 h-5 text-[#C9A961]" aria-hidden="true" />
+                      </span>
+                      <span className="flex-1 min-w-0">
+                        <span className="block font-semibold text-foreground">
+                          Carte bancaire
+                        </span>
+                        <span className="block text-xs text-muted-foreground">
+                          Visa, Mastercard, CB
+                        </span>
+                      </span>
+                    </label>
+                    <div
+                      aria-disabled="true"
+                      className="flex items-center gap-4 rounded-2xl border border-border p-4 sm:p-5 opacity-60 cursor-not-allowed"
+                    >
+                      <RadioGroupItem value="paypal" disabled aria-label="PayPal" />
+                      <span className="w-10 h-10 rounded-full bg-muted flex items-center justify-center shrink-0">
+                        <Wallet className="w-5 h-5 text-muted-foreground" aria-hidden="true" />
+                      </span>
+                      <span className="flex-1 min-w-0">
+                        <span className="block font-semibold text-foreground">PayPal</span>
+                        <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground mt-0.5">
+                          Disponible prochainement
+                        </span>
+                      </span>
+                    </div>
+                  </RadioGroup>
+
+                  {payMethod === "card" && (
+                    <div className="mt-6 grid gap-5">
+                      <div className="grid gap-2">
+                        <Label htmlFor="card-number">Numéro de carte</Label>
+                        <Input
+                          id="card-number"
+                          inputMode="numeric"
+                          autoComplete="cc-number"
+                          placeholder="1234 5678 9012 3456"
+                          maxLength={19}
+                          className="font-mono"
+                          value={cardNumber}
+                          onChange={(event) => {
+                            setCardNumber(formatCardNumber(event.target.value));
+                            clearCardError("number");
+                          }}
+                          aria-invalid={cardErrors.number ? true : undefined}
+                        />
+                        {cardErrors.number && (
+                          <p className="text-destructive text-sm">{cardErrors.number}</p>
+                        )}
+                      </div>
+                      <div className="grid gap-5 sm:grid-cols-2">
+                        <div className="grid gap-2">
+                          <Label htmlFor="card-expiry">Expiration</Label>
+                          <Input
+                            id="card-expiry"
+                            inputMode="numeric"
+                            autoComplete="cc-exp"
+                            placeholder="MM/AA"
+                            maxLength={5}
+                            value={cardExpiry}
+                            onChange={(event) => {
+                              setCardExpiry(formatExpiry(event.target.value));
+                              clearCardError("expiry");
+                            }}
+                            aria-invalid={cardErrors.expiry ? true : undefined}
+                          />
+                          {cardErrors.expiry && (
+                            <p className="text-destructive text-sm">{cardErrors.expiry}</p>
+                          )}
+                        </div>
+                        <div className="grid gap-2">
+                          <Label htmlFor="card-cvc">CVC</Label>
+                          <Input
+                            id="card-cvc"
+                            inputMode="numeric"
+                            autoComplete="cc-csc"
+                            placeholder="123"
+                            maxLength={3}
+                            value={cardCvc}
+                            onChange={(event) => {
+                              setCardCvc(event.target.value.replace(/\D/g, "").slice(0, 3));
+                              clearCardError("cvc");
+                            }}
+                            aria-invalid={cardErrors.cvc ? true : undefined}
+                          />
+                          {cardErrors.cvc && (
+                            <p className="text-destructive text-sm">{cardErrors.cvc}</p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="card-holder">Titulaire de la carte</Label>
+                        <Input
+                          id="card-holder"
+                          autoComplete="cc-name"
+                          placeholder="Prénom Nom"
+                          value={cardHolder}
+                          onChange={(event) => {
+                            setCardHolder(event.target.value);
+                            clearCardError("holder");
+                          }}
+                          aria-invalid={cardErrors.holder ? true : undefined}
+                        />
+                        {cardErrors.holder && (
+                          <p className="text-destructive text-sm">{cardErrors.holder}</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="mt-8 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-4">
+                    <button
+                      type="button"
+                      onClick={() => setStep(2)}
+                      className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-[#C9A961] transition-colors self-start sm:self-auto"
+                    >
+                      <ArrowLeft className="w-4 h-4" aria-hidden="true" />
+                      Retour
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handlePay}
+                      disabled={processing}
+                      className="inline-flex items-center justify-center gap-2 bg-[#C9A961] hover:bg-[#b8994f] text-white rounded-full px-8 py-3.5 font-semibold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      {processing ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                          Traitement en cours…
+                        </>
+                      ) : (
+                        <>
+                          <Lock className="w-4 h-4" aria-hidden="true" />
+                          Payer {priceLabel(total)}
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  <p className="mt-4 flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
+                    <ShieldCheck className="w-3.5 h-3.5 text-[#C9A961]" aria-hidden="true" />
+                    Transaction chiffrée de bout en bout — démonstration sans débit réel.
+                  </p>
+                </div>
+              )}
+            </div>
+          </section>
+
+          <SummarySidebar
+            items={cart}
+            itemsCount={itemsCount}
+            subtotal={subtotal}
+            promo={promo}
+            discount={promoComp.discount}
+            shippingCost={shippingCost}
+            total={total}
+            onRemovePromo={() => setPromo(null)}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Stepper visuel
+// ---------------------------------------------------------------------------
+
+function Stepper({ current }: { current: number }) {
+  return (
+    <nav aria-label="Étapes de commande" className="mb-10">
+      <ol className="flex items-start">
+        {STEPS.map((label, index) => {
+          const id = index + 1;
+          const done = id < current;
+          const active = id === current;
+          return (
+            <li
+              key={label}
+              aria-current={active ? "step" : undefined}
+              className={cn("flex items-start", index < STEPS.length - 1 && "flex-1")}
+            >
+              <div className="flex flex-col items-center gap-1.5 shrink-0">
+                <span
+                  className={cn(
+                    "w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold border-2 transition-colors",
+                    done && "bg-[#C9A961] border-[#C9A961] text-white",
+                    active &&
+                      "bg-[#C9A961] border-[#C9A961] text-white ring-4 ring-[#C9A961]/20",
+                    !done && !active && "bg-muted border-border text-muted-foreground"
+                  )}
+                >
+                  {done ? (
+                    <Check className="w-4 h-4" aria-hidden="true" />
+                  ) : (
+                    id
+                  )}
+                </span>
+                <span
+                  className={cn(
+                    "text-xs font-medium hidden sm:block",
+                    active && "text-[#C9A961]",
+                    done && !active && "text-foreground",
+                    !done && !active && "text-muted-foreground"
+                  )}
+                >
+                  {label}
+                </span>
+              </div>
+              {index < STEPS.length - 1 && (
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    "flex-1 h-0.5 rounded-full mt-[17px] mx-2 sm:mx-3",
+                    done ? "bg-[#C9A961]" : "bg-border"
+                  )}
+                />
+              )}
+            </li>
+          );
+        })}
+      </ol>
+      <p className="mt-3 text-center text-xs text-muted-foreground sm:hidden">
+        Étape {current} sur {STEPS.length} — {STEPS[current - 1]}
+      </p>
+    </nav>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Récapitulatif (sidebar sticky, visible sur les étapes 1 à 3)
+// ---------------------------------------------------------------------------
+
+interface SummarySidebarProps {
+  items: CartItem[];
+  itemsCount: number;
+  subtotal: number;
+  promo: PromoDefinition | null;
+  discount: number;
+  shippingCost: number;
+  total: number;
+  onRemovePromo: () => void;
+}
+
+function SummarySidebar({
+  items,
+  itemsCount,
+  subtotal,
+  promo,
+  discount,
+  shippingCost,
+  total,
+  onRemovePromo,
+}: SummarySidebarProps) {
+  return (
+    <div>
+      <div className="bg-card rounded-2xl border p-6 lg:sticky lg:top-32">
+        <div className="flex items-center justify-between gap-3 mb-5">
+          <h2 className="font-semibold text-foreground text-lg">Récapitulatif</h2>
+          <span className="text-sm text-muted-foreground">
+            {itemsCount} article(s)
+          </span>
+        </div>
+
+        <div className="max-h-56 overflow-y-auto space-y-3 pr-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border">
+          {items.map((item) => (
+            <div
+              key={`${item.productId}-${item.size ?? ""}-${item.color ?? ""}`}
+              className="flex items-center gap-3"
+            >
+              <img
+                src={item.image}
+                alt={item.name}
+                className="w-12 h-12 rounded-lg object-cover bg-muted shrink-0"
+              />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-foreground line-clamp-1">
+                  {item.name}
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Quantité : {item.quantity}
+                </p>
+              </div>
+              <span className="text-sm font-semibold text-foreground shrink-0">
+                {priceLabel(item.price * item.quantity)}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        <div className="border-t border-border mt-5 pt-4 space-y-2.5 text-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">Sous-total</span>
+            <span className="font-medium text-foreground">{priceLabel(subtotal)}</span>
+          </div>
+          {promo && discount > 0 && (
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Remise ({promo.code})</span>
+              <span className="font-medium text-green-600 dark:text-green-400">
+                -{discount.toFixed(2)} €
+              </span>
+            </div>
+          )}
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">Livraison</span>
+            {shippingCost === 0 ? (
+              <span className="font-medium text-green-600 dark:text-green-400">
+                Offerte
+              </span>
+            ) : (
+              <span className="font-medium text-foreground">
+                {priceLabel(shippingCost)}
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground/80">
+            Offerte dès {FREE_SHIPPING_THRESHOLD} € d&apos;achat.
+          </p>
+          <div className="border-t border-border pt-3 flex items-center justify-between">
+            <span className="font-semibold text-foreground">Total</span>
+            <span className="text-lg font-bold text-[#C9A961]">
+              {priceLabel(total)}
+            </span>
+          </div>
+        </div>
+
+        {promo ? (
+          <div className="mt-5 pt-4 border-t border-border">
+            <div className="flex items-center justify-between gap-2 rounded-xl border border-[#C9A961]/40 bg-[#C9A961]/10 px-3 py-2.5">
+              <div className="flex items-center gap-2 min-w-0">
+                <Tag className="w-4 h-4 text-[#C9A961] shrink-0" aria-hidden="true" />
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-[#C9A961] leading-tight">
+                    {promo.code}
+                  </p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {promo.label}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={onRemovePromo}
+                aria-label="Retirer le code promo"
+                className="p-1.5 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              >
+                <X className="w-4 h-4" aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+        ) : (
+          <PromoCodeBox subtotal={subtotal} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Code promo (checkout) — le panier reste propriétaire de la saisie principale
+// ---------------------------------------------------------------------------
+
+interface PromoCodeBoxProps {
+  subtotal: number;
+}
+
+function PromoCodeBox({ subtotal }: PromoCodeBoxProps) {
+  const setPromo = useShopStore((s) => s.setPromo);
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>): void {
+    event.preventDefault();
+    const result = validatePromo(value, subtotal);
+    if (result.ok && result.promo) {
+      setPromo(result.promo.code);
+      trackEvent("apply_promo", { code: result.promo.code });
+      toast.success(result.promo.label);
+      setValue("");
+      setError(null);
+      setOpen(false);
+    } else {
+      setError(result.error ?? "Ce code promo n'est pas valide.");
+    }
+  }
+
+  return (
+    <Collapsible
+      open={open}
+      onOpenChange={setOpen}
+      className="mt-5 pt-4 border-t border-border"
+    >
+      <CollapsibleTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-[#C9A961] transition-colors"
+        >
+          <Tag className="w-4 h-4" aria-hidden="true" />
+          Ajouter un code promo
+          <ChevronDown
+            className={cn("w-3.5 h-3.5 transition-transform", open && "rotate-180")}
+            aria-hidden="true"
+          />
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <form onSubmit={handleSubmit} className="mt-3 flex items-start gap-2">
+          <div className="flex-1">
+            <Input
+              value={value}
+              onChange={(event) => {
+                setValue(event.target.value);
+                setError(null);
+              }}
+              placeholder="Code promo"
+              aria-label="Code promo"
+              className="h-11 uppercase"
+            />
+            {error && <p className="text-destructive text-sm mt-1.5">{error}</p>}
+          </div>
+          <button
+            type="submit"
+            className="h-11 shrink-0 rounded-full bg-[#C9A961] hover:bg-[#b8994f] text-white px-5 text-sm font-semibold transition-colors"
+          >
+            Appliquer
+          </button>
+        </form>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Étape 4 — Confirmation
+// ---------------------------------------------------------------------------
+
+interface ConfirmationViewProps {
+  order: OrderSnapshot;
+  onNavigate: (page: string) => void;
+}
+
+function ConfirmationView({ order, onNavigate }: ConfirmationViewProps) {
+  const firstName = order.customerName.split(" ")[0] ?? order.customerName;
+  const shippingOption = SHIPPING_OPTIONS.find(
+    (option) => option.id === order.shippingMethod
+  );
+  const addressLines = [
+    order.address.line1,
+    order.address.line2,
+    `${order.address.postalCode} ${order.address.city}`,
+    order.address.country,
+  ].filter((line) => line.trim().length > 0);
+
+  return (
+    <div className="bg-background flex-1 flex flex-col">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex-1 flex flex-col w-full">
+        <div className="flex-1 flex flex-col items-center justify-center text-center py-12 px-4">
+          <div className="rounded-full bg-[#C9A961] p-5 shadow-[0_0_0_12px_rgba(201,169,97,0.12)] mb-6">
+            <Check className="w-10 h-10 text-white" strokeWidth={3} aria-hidden="true" />
+          </div>
+          <h1 className="text-3xl md:text-4xl font-bold text-foreground mb-3">
+            Merci {firstName} ! Votre commande est confirmée.
+          </h1>
+          <p className="text-sm text-muted-foreground mb-1">
+            Référence de commande
+          </p>
+          <p className="font-mono text-xl font-bold tracking-widest text-[#C9A961] mb-8">
+            {order.reference}
+          </p>
+
+          <div className="w-full max-w-xl bg-card rounded-2xl border p-6 text-left">
+            <h2 className="font-semibold text-foreground mb-4">
+              Récapitulatif de la commande
+            </h2>
+            <dl className="grid gap-4 text-sm">
+              <div className="grid grid-cols-[9rem_1fr] sm:grid-cols-[10rem_1fr] gap-x-3 items-start">
+                <dt className="flex items-center gap-1.5 text-muted-foreground">
+                  <ReceiptText className="w-4 h-4 text-[#C9A961] shrink-0" aria-hidden="true" />
+                  Référence
+                </dt>
+                <dd className="font-semibold font-mono text-foreground">
+                  {order.reference}
+                </dd>
+              </div>
+              <div className="grid grid-cols-[9rem_1fr] sm:grid-cols-[10rem_1fr] gap-x-3 items-start">
+                <dt className="flex items-center gap-1.5 text-muted-foreground">
+                  <Mail className="w-4 h-4 text-[#C9A961] shrink-0" aria-hidden="true" />
+                  Email
+                </dt>
+                <dd className="font-medium text-foreground break-all">{order.email}</dd>
+              </div>
+              <div className="grid grid-cols-[9rem_1fr] sm:grid-cols-[10rem_1fr] gap-x-3 items-start">
+                <dt className="flex items-center gap-1.5 text-muted-foreground">
+                  <MapPin className="w-4 h-4 text-[#C9A961] shrink-0" aria-hidden="true" />
+                  Adresse de livraison
+                </dt>
+                <dd className="font-medium text-foreground">
+                  {addressLines.map((line, index) => (
+                    <span key={`${line}-${index}`} className="block">
+                      {line}
+                    </span>
+                  ))}
+                </dd>
+              </div>
+              <div className="grid grid-cols-[9rem_1fr] sm:grid-cols-[10rem_1fr] gap-x-3 items-start">
+                <dt className="flex items-center gap-1.5 text-muted-foreground">
+                  <Truck className="w-4 h-4 text-[#C9A961] shrink-0" aria-hidden="true" />
+                  Méthode de livraison
+                </dt>
+                <dd className="font-medium text-foreground">
+                  {shippingOption
+                    ? `${shippingOption.label} — ${shippingOption.eta}`
+                    : order.shippingMethod}
+                </dd>
+              </div>
+              <div className="grid grid-cols-[9rem_1fr] sm:grid-cols-[10rem_1fr] gap-x-3 items-start">
+                <dt className="flex items-center gap-1.5 text-muted-foreground">
+                  <CreditCard className="w-4 h-4 text-[#C9A961] shrink-0" aria-hidden="true" />
+                  Total payé
+                </dt>
+                <dd className="font-bold text-[#C9A961]">{priceLabel(order.total)}</dd>
+              </div>
+            </dl>
+          </div>
+
+          <p className="text-sm text-muted-foreground mt-5 max-w-xl">
+            Un email de confirmation sera envoyé à {order.email} — l&apos;envoi
+            réel arrivera avec le backend.
+          </p>
+
+          <div className="flex flex-col sm:flex-row items-center gap-3 mt-8">
+            <button
+              type="button"
+              onClick={() => onNavigate("shop")}
+              className="inline-flex items-center justify-center gap-2 bg-[#C9A961] hover:bg-[#b8994f] text-white rounded-full px-8 py-3 font-semibold transition-colors"
+            >
+              Continuer mes achats
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigate("tracking")}
+              className="inline-flex items-center justify-center gap-2 border border-border bg-card rounded-full px-8 py-3 font-semibold text-foreground hover:border-[#C9A961] hover:text-[#C9A961] transition-colors"
+            >
+              Suivre ma commande
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// États auxiliaires : panier vide + squelette d'hydratation
+// ---------------------------------------------------------------------------
+
+interface EmptyCartViewProps {
+  onNavigate: (page: string) => void;
+}
+
+function EmptyCartView({ onNavigate }: EmptyCartViewProps) {
+  return (
+    <div className="bg-background flex-1 flex flex-col">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex-1 flex flex-col w-full">
+        <div className="flex-1 flex flex-col items-center justify-center text-center py-16 px-4">
+          <div className="p-8 bg-muted rounded-full mb-6">
+            <ShoppingBag
+              className="w-16 h-16 text-muted-foreground/40"
+              aria-hidden="true"
+            />
+          </div>
+          <h1 className="text-3xl md:text-4xl font-bold text-foreground mb-3">
+            Votre panier est vide
+          </h1>
+          <p className="text-muted-foreground mb-8 max-w-md">
+            Parcourez la boutique et ajoutez vos articles préférés pour passer
+            commande.
+          </p>
+          <button
+            type="button"
+            onClick={() => onNavigate("shop")}
+            className="inline-flex items-center gap-2 bg-[#C9A961] hover:bg-[#b8994f] text-white rounded-full px-8 py-3 font-semibold transition-colors"
+          >
+            <ShoppingBag className="w-4 h-4" aria-hidden="true" />
+            Retour à la boutique
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CheckoutSkeleton() {
+  return (
+    <div className="bg-background flex-1 flex flex-col">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        <div className="h-10 w-64 bg-muted rounded-full animate-pulse mb-8" />
+        <div className="h-12 w-full max-w-md bg-muted rounded-full animate-pulse mb-10" />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="lg:col-span-2 h-96 bg-muted rounded-2xl animate-pulse" />
+          <div className="h-80 bg-muted rounded-2xl animate-pulse" />
+        </div>
+      </div>
+    </div>
+  );
+}
