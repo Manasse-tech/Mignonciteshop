@@ -384,6 +384,9 @@ function CheckoutTunnel({ onComplete, onNavigate }: CheckoutTunnelProps) {
           shippingMethod: shipping,
           promoCode: promo?.code ?? null,
           paymentMethod: "card",
+          // Autorisation bancaire côté serveur (passerelle démo).
+          // Seuls les 4 derniers chiffres sont conservés sur la commande.
+          card: { number: digits, holder: cardHolder.trim() },
           address,
         })
         .then((result) => {
@@ -1020,6 +1023,7 @@ function CheckoutTunnel({ onComplete, onNavigate }: CheckoutTunnelProps) {
             discount={promoComp.discount}
             shippingCost={shippingCost}
             total={total}
+            freeShippingThreshold={storeSettings.freeShippingThreshold}
             onRemovePromo={() => setPromo(null)}
           />
         </div>
@@ -1105,6 +1109,8 @@ interface SummarySidebarProps {
   discount: number;
   shippingCost: number;
   total: number;
+  /** Seuil de livraison offerte (réglages boutique, chargés par le hook). */
+  freeShippingThreshold: number;
   onRemovePromo: () => void;
 }
 
@@ -1116,6 +1122,7 @@ function SummarySidebar({
   discount,
   shippingCost,
   total,
+  freeShippingThreshold,
   onRemovePromo,
 }: SummarySidebarProps) {
   return (
@@ -1180,7 +1187,7 @@ function SummarySidebar({
             )}
           </div>
           <p className="text-xs text-muted-foreground/80">
-            Offerte dès {storeSettings.freeShippingThreshold} € d&apos;achat.
+            Offerte dès {freeShippingThreshold} € d&apos;achat.
           </p>
           <div className="border-t border-border pt-3 flex items-center justify-between">
             <span className="font-semibold text-foreground">
@@ -1401,8 +1408,8 @@ function ConfirmationView({ order, onNavigate }: ConfirmationViewProps) {
           </div>
 
           <p className="text-sm text-muted-foreground mt-5 max-w-xl">
-            Un email de confirmation sera envoyé à {order.email} — l&apos;envoi
-            réel arrivera avec le backend.
+            Un email de confirmation avec votre récapitulatif a été envoyé à{" "}
+            <span className="font-medium text-foreground">{order.email}</span>.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center gap-3 mt-8">

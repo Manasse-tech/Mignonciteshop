@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 import { db } from "@/lib/db"
 import { requireAdmin, unauthorized } from "@/lib/auth-server"
+import { sendEmail } from "@/lib/mailer"
+import { logAudit } from "@/lib/audit"
+import { refundTransaction } from "@/lib/payments"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -14,19 +17,26 @@ const patchSchema = z.object({
 })
 
 /**
- * GET /api/admin/orders — liste des commandes (100 dernières) avec lignes.
+ * GET /api/admin/orders — liste paginée des commandes avec lignes.
+ * Query : ?page=1&limit=50 (limit 10..100) + total pour la pagination UI.
  */
 export async function GET(request: NextRequest) {
   const admin = await requireAdmin(request)
   if (!admin) return unauthorized()
 
   try {
-    const orders = await db.order.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 100,
-      include: { items: true },
-    })
-    return NextResponse.json(orders)
+    const page = Math.max(1, Number(request.nextUrl.searchParams.get("page")) || 1)
+    const limit = Math.min(100, Math.max(10, Number(request.nextUrl.searchParams.get("limit")) || 50))
+    const [orders, total] = await Promise.all([
+      db.order.findMany({
+        orderBy: { createdAt: "desc" },
+        skip: (page - 1) * limit,
+        take: limit,
+        include: { items: true },
+      }),
+      db.order.count(),
+    ])
+    return NextResponse.json({ orders, total, page, limit })
   } catch (error) {
     console.error("GET /api/admin/orders error:", error)
     return NextResponse.json(
@@ -55,23 +65,41 @@ export async function PATCH(request: NextRequest) {
     }
 
     const { id, status } = parsed.data
-    const existing = await db.order.findUnique({ where: { id } })
+    const existing = await db.order.findUnique({ where: { id }, include: { items: true } })
     if (!existing) {
       return NextResponse.json(
         { ok: false, error: "Commande non trouvée" },
         { status: 404 }
       )
     }
+    if (existing.status === status) {
+      return NextResponse.json({ ok: true, order: existing })
+    }
+
+    // Annulation d'une commande payée : remboursement AVANT la mise à jour.
+    let refunded = false
+    if (
+      status === "cancelled" &&
+      existing.status !== "cancelled" &&
+      existing.paymentStatus === "paid" &&
+      existing.transactionId
+    ) {
+      refunded = await refundTransaction(existing.transactionId, existing.reference)
+    }
 
     const updated = await db.order.update({
       where: { id },
       data: {
         status,
-        // Cohérence paiement : une commande marquée "paid" l'est aussi côté paiement.
+        // Cohérence paiement : payée si marquée "paid" ; remboursee si
+        // annulée alors qu'elle était payée ; jamais payée en pending.
         paymentStatus:
-          status === "paid" ? "paid" : status === "cancelled" && existing.paymentStatus === "unpaid"
+          status === "paid" ? "paid"
+          : status === "cancelled" && existing.paymentStatus === "paid" && refunded
+            ? "refunded"
+          : status === "cancelled" && existing.paymentStatus === "unpaid"
             ? "unpaid"
-            : existing.paymentStatus,
+          : existing.paymentStatus,
       },
       include: { items: true },
     })
@@ -90,6 +118,49 @@ export async function PATCH(request: NextRequest) {
         )
       )
     }
+
+    // Traçabilité + e-mail au client (fire-and-forget, jamais bloquant).
+    if (refunded) {
+      await logAudit({
+        actor: admin.email,
+        action: "order.refund",
+        target: existing.reference,
+        details: { total: existing.total, transactionId: existing.transactionId },
+      })
+    }
+    await logAudit({
+      actor: admin.email,
+      action: "order.status",
+      target: existing.reference,
+      details: { from: existing.status, to: status },
+    })
+    const STATUS_LABELS: Record<string, string> = {
+      pending: "En attente de traitement",
+      paid: "Paiement confirmé",
+      shipped: "Expédiée — en cours de livraison",
+      delivered: "Livrée",
+      cancelled: "Annulée",
+    }
+    await sendEmail({
+      to: existing.email,
+      subject: `Commande ${existing.reference} — statut mis à jour : ${STATUS_LABELS[status] ?? status}`,
+      template: "order_status",
+      lines: [
+        `Bonjour ${existing.customerName},`,
+        ``,
+        `Le statut de votre commande ${existing.reference} vient d'être mis à jour :`,
+        `  ${STATUS_LABELS[status] ?? status}`,
+        status === "shipped"
+          ? `\nVotre colis est en route vers : ${existing.addressLine1}, ${existing.postalCode} ${existing.city}.`
+          : ``,
+        status === "cancelled"
+          ? existing.paymentStatus === "refunded"
+            ? `\nVotre paiement (${existing.total.toFixed(2)} €) a été remboursé — il apparaîtra sur votre compte sous quelques jours.`
+            : `\nAucun montant ne vous sera débité.`
+          : ``,
+      ].filter((line) => line !== ""),
+      data: { reference: existing.reference, status, refunded },
+    })
 
     return NextResponse.json({ ok: true, order: updated })
   } catch (error) {

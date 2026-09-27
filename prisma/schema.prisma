@@ -157,6 +157,8 @@ model Order {
   promoCode      String?
   paymentMethod  String      @default("card") // card | paypal | transfer
   paymentStatus  String      @default("unpaid") // unpaid | paid | refunded
+  transactionId  String? // identifiant du provider de paiement (ch_demo_… / ch_stripe_…)
+  cardLast4      String? // 4 derniers chiffres seulement (jamais le numéro complet)
   notes          String?
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
@@ -237,4 +239,60 @@ model Setting {
   key       String   @id
   value     String
   updatedAt DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// Analytics — événements de navigation/métier persistés (fin du no-op 204).
+// Source : src/lib/analytics.ts côté client → POST /api/analytics.
+// ---------------------------------------------------------------------------
+
+model AnalyticsEvent {
+  id        String   @id @default(cuid())
+  event     String // page_view | product_view | add_to_cart | purchase | ...
+  page      String?  // page SPA concernée (?page=...)
+  productId String?
+  value     Float?   // montant éventuel (purchase…)
+  meta      String   @default("{}") // JSON libre (payload restant)
+  createdAt DateTime @default(now())
+
+  @@index([event])
+  @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Journal des e-mails transactionnels « envoyés ».
+// En sandbox (pas de SMTP), le provider LOG persiste chaque e-mail ici :
+// l'admin peut les consulter dans l'onglet E-mails. Le jour où des clés
+// SMTP/Resend arrivent, il suffit d'ajouter un provider dans src/lib/mailer.
+// ---------------------------------------------------------------------------
+
+model EmailLog {
+  id        String   @id @default(cuid())
+  to        String
+  subject   String
+  template  String // order_confirmation | order_status | restock_alert | welcome | password_reset | account_deleted
+  body      String   @default("") // texte lisible (rendu simple)
+  data      String   @default("{}") // JSON (référence commande, token, produit…)
+  status    String   @default("logged") // logged | sent | failed
+  error     String?
+  createdAt DateTime @default(now())
+
+  @@index([to])
+  @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Journal d'audit admin — trace écrite de chaque action sensible.
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  actor     String // email de l'admin
+  action    String // product.create | order.status | promo.create | review.approve | ...
+  target    String   @default("") // identifiant visé (id, référence…)
+  details   String   @default("{}") // JSON (avant/après)
+  createdAt DateTime @default(now())
+
+  @@index([action])
+  @@index([createdAt])
 }

@@ -6,6 +6,7 @@ import {
   getStoreSettings,
   invalidateSettingsCache,
 } from "@/lib/settings"
+import { logAudit } from "@/lib/audit"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -65,6 +66,7 @@ export async function PATCH(request: NextRequest) {
     )
     await db.$transaction(upserts)
     invalidateSettingsCache()
+    await logAudit({ actor: admin.email, action: "settings.update", details: parsed.data })
 
     const settings = await getStoreSettings()
     return NextResponse.json({ ok: true, settings })

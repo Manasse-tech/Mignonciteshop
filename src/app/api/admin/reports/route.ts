@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
       : 30
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
 
-    const [periodOrders, allProducts, categories, newCustomers, pendingReviews, ratingAgg, activeProducts] =
+    const [periodOrders, allProducts, categories, newCustomers, pendingReviews, ratingAgg, activeProducts, analyticsAgg, eventSeries] =
       await Promise.all([
         db.order.findMany({
           where: { createdAt: { gte: since } },
@@ -60,6 +60,11 @@ export async function GET(request: NextRequest) {
           _avg: { rating: true },
         }),
         db.product.count({ where: { isActive: true } }),
+        db.analyticsEvent.groupBy({
+          by: ["event"],
+          where: { createdAt: { gte: since } },
+          _count: { _all: true },
+        }),
       ])
 
     const validOrders = periodOrders.filter((o) => o.status !== "cancelled")
@@ -166,6 +171,13 @@ export async function GET(request: NextRequest) {
     )
     const outOfStock = allProducts.filter((p) => p.stock === 0).length
 
+    const analyticsAgg_ = analyticsAgg
+      .map((row) => ({ event: row.event, count: row._count._all }))
+      .sort((a, b) => b.count - a.count)
+    const pageViews = analyticsAgg_
+      .filter((row) => row.event === "page_view")
+      .reduce((sum, row) => sum + row.count, 0)
+
     return NextResponse.json({
       days,
       revenue,
@@ -183,6 +195,7 @@ export async function GET(request: NextRequest) {
       lowStockProducts,
       pendingReviews,
       avgRating: Math.round((ratingAgg._avg.rating ?? 0) * 10) / 10,
+      analytics: { pageViews, events: analyticsAgg_ },
     })
   } catch (error) {
     console.error("GET /api/admin/reports error:", error)

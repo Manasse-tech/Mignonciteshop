@@ -216,6 +216,78 @@ export interface AdminReport {
   }[];
   pendingReviews: number;
   avgRating: number;
+  analytics: {
+    pageViews: number;
+    events: { event: string; count: number }[];
+  };
+}
+
+export interface AdminEmailLog {
+  id: string;
+  to: string;
+  subject: string;
+  template: string;
+  body: string;
+  data: string;
+  status: string;
+  createdAt: string;
+}
+
+export interface AdminAuditEntry {
+  id: string;
+  actor: string;
+  action: string;
+  target: string;
+  details: string;
+  createdAt: string;
+}
+
+export interface AccountOrder {
+  id: string;
+  reference: string;
+  status: string;
+  paymentStatus: string;
+  shippingMethod: string;
+  subtotal: number;
+  discount: number;
+  shippingCost: number;
+  total: number;
+  promoCode: string | null;
+  createdAt: string;
+  city: string;
+  items: {
+    id: string;
+    productName: string;
+    image: string;
+    unitPrice: number;
+    quantity: number;
+    size: string | null;
+    color: string | null;
+  }[];
+}
+
+export interface TrackedOrder {
+  reference: string;
+  status: string;
+  paymentStatus: string;
+  shippingMethod: string;
+  city: string;
+  country: string;
+  createdAt: string;
+  updatedAt: string;
+  subtotal: number;
+  discount: number;
+  shippingCost: number;
+  total: number;
+  promoCode: string | null;
+  items: {
+    productName: string;
+    image: string;
+    quantity: number;
+    unitPrice: number;
+    size: string | null;
+    color: string | null;
+  }[];
 }
 
 export interface StoreSettingsPublic {
@@ -302,6 +374,8 @@ export const api = {
       shippingMethod: "standard" | "express" | "pickup";
       promoCode?: string | null;
       paymentMethod?: "card" | "paypal" | "transfer";
+      // Données carte (passerelle démo côté serveur — jamais stockées en clair).
+      card?: { number: string; holder: string } | null;
       notes?: string | null;
       address: {
         line1: string;
@@ -366,20 +440,56 @@ export const api = {
   },
 
   // -------------------------------------------------------------------------
+  // Auth — register/login/logout + réinitialisation de mot de passe
+  // -------------------------------------------------------------------------
+  auth: {
+    forgotPassword(email: string): Promise<{ ok: boolean; message: string }> {
+      return post("/api/auth/forgot-password", { email });
+    },
+    resetPassword(token: string, password: string): Promise<{ ok: boolean; message: string }> {
+      return post("/api/auth/reset-password", { token, password });
+    },
+  },
+
+  // -------------------------------------------------------------------------
+  // Compte client (session requise) — historique + RGPD
+  // -------------------------------------------------------------------------
+  account: {
+    orders(): Promise<{ orders: AccountOrder[] }> {
+      return request<{ orders: AccountOrder[] }>("/api/account/orders");
+    },
+    exportUrl(): string {
+      return "/api/account/export";
+    },
+    deleteAccount(): Promise<{ ok: boolean; message: string }> {
+      return post("/api/account/delete", {});
+    },
+  },
+
+  // -------------------------------------------------------------------------
+  // Suivi de commande public (référence + e-mail, sans session)
+  // -------------------------------------------------------------------------
+  track(reference: string, email: string): Promise<{ ok: boolean; order: TrackedOrder }> {
+    return request<{ ok: boolean; order: TrackedOrder }>(
+      `/api/orders/track?reference=${encodeURIComponent(reference)}&email=${encodeURIComponent(email)}`
+    );
+  },
+
+  // -------------------------------------------------------------------------
   // Espace administrateur — routes protégées (session cookie + rôle admin)
   // -------------------------------------------------------------------------
   admin: {
     stats(): Promise<AdminStats> {
       return request<AdminStats>("/api/admin/stats");
     },
-    orders(): Promise<AdminOrder[]> {
-      return request<AdminOrder[]>("/api/admin/orders");
+    orders(page = 1, limit = 50): Promise<{ orders: AdminOrder[]; total: number; page: number; limit: number }> {
+      return request(`/api/admin/orders?page=${page}&limit=${limit}`);
     },
     updateOrderStatus(id: string, status: string): Promise<{ ok: boolean }> {
       return patch("/api/admin/orders", { id, status });
     },
-    products(): Promise<Product[]> {
-      return request<Product[]>("/api/admin/products");
+    products(page = 1, limit = 100): Promise<{ products: Product[]; total: number; page: number; limit: number }> {
+      return request(`/api/admin/products?page=${page}&limit=${limit}`);
     },
     createProduct(data: {
       name: string;
@@ -417,7 +527,7 @@ export const api = {
         isNew: boolean;
         isActive: boolean;
       }>
-    ): Promise<{ ok: boolean }> {
+    ): Promise<{ ok: boolean; restockNotified?: number }> {
       return patch("/api/admin/products", { id, ...data });
     },
     deleteProduct(id: string): Promise<{ ok: boolean }> {
@@ -491,6 +601,17 @@ export const api = {
     },
     exportUrl(type: "orders" | "products" | "customers"): string {
       return `/api/admin/export?type=${type}`;
+    },
+    emails(page = 1, limit = 25, q?: string, template?: string): Promise<{ emails: AdminEmailLog[]; total: number; page: number; limit: number }> {
+      const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+      if (q && q.trim()) params.set("q", q.trim());
+      if (template && template !== "all") params.set("template", template);
+      return request(`/api/admin/emails?${params.toString()}`);
+    },
+    audit(page = 1, limit = 30, action?: string): Promise<{ entries: AdminAuditEntry[]; total: number; page: number; limit: number }> {
+      const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+      if (action && action !== "all") params.set("action", action);
+      return request(`/api/admin/audit?${params.toString()}`);
     },
   },
 };

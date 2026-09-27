@@ -7,6 +7,7 @@ import {
   hashPassword,
   setSessionCookie,
 } from "@/lib/auth-server"
+import { sendEmail } from "@/lib/mailer"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -75,6 +76,25 @@ export async function POST(request: NextRequest) {
     })
 
     const { token, expires } = await createSession(user.id)
+
+    // E-mail de bienvenue (fire-and-forget, jamais bloquant).
+    void sendEmail({
+      to: email,
+      subject: `Bienvenue chez MignonciteShop, ${name} !`,
+      template: "welcome",
+      lines: [
+        `Bonjour ${name},`,
+        ``,
+        `Votre compte vient d'être créé avec l'adresse ${email}.`,
+        `Vous pouvez désormais :`,
+        `  - suivre vos commandes depuis votre compte,`,
+        `  - profiter d'offres exclusives réservées aux membres.`,
+        ``,
+        `À très vite dans la boutique !`,
+      ],
+      data: { name, email },
+    })
+
     const response = NextResponse.json({
       ok: true,
       user: { id: user.id, name: user.name, email: user.email, role: user.role },

@@ -596,7 +596,10 @@ async function main() {
   await prisma.contactMessage.deleteMany()
   await prisma.newsletterSubscriber.deleteMany()
   await prisma.promoCode.deleteMany()
-  console.log("🗑  Tables de démo vidées (commandes, avis, alertes, messages, promos)")
+  await prisma.analyticsEvent.deleteMany()
+  await prisma.emailLog.deleteMany()
+  await prisma.auditLog.deleteMany()
+  console.log("🗑  Tables de démo vidées (commandes, avis, alertes, messages, promos, analytics, e-mails, audit)")
 
   // 1. Comptes clients (upsert — marie@test.fr peut déjà exister).
   const passwordHash = await bcrypt.hash(CLIENT_PASSWORD, 10)
@@ -819,7 +822,105 @@ async function main() {
   })
   console.log(`✅ ${officialPromos.length + EXTRA_PROMOS.length} codes promo (officiels + démonstration)`)
 
-  // 10. Vérification finale.
+  // 10. Événements analytics de démonstration (activité des rapports).
+  const EVENTS: { event: string; page?: string; productId?: string; value?: number; daysAgo: number }[] = [
+    { event: "page_view", page: "home", daysAgo: 0 }, { event: "page_view", page: "shop", daysAgo: 0 },
+    { event: "product_view", page: "product", daysAgo: 0 }, { event: "add_to_cart", daysAgo: 0 },
+    { event: "page_view", page: "home", daysAgo: 1 }, { event: "page_view", page: "shop", daysAgo: 1 },
+    { event: "product_view", page: "product", daysAgo: 1 }, { event: "search", daysAgo: 1 },
+    { event: "begin_checkout", page: "checkout", daysAgo: 1 },
+    { event: "page_view", page: "home", daysAgo: 2 }, { event: "add_to_cart", daysAgo: 2 },
+    { event: "wishlist_add", daysAgo: 2 }, { event: "apply_promo", daysAgo: 2 },
+    { event: "page_view", page: "product", daysAgo: 3 }, { event: "product_view", page: "product", daysAgo: 3 },
+    { event: "newsletter_signup", daysAgo: 4 }, { event: "review_submitted", daysAgo: 5 },
+    { event: "stock_alert", daysAgo: 6 }, { event: "contact_submit", daysAgo: 7 },
+    { event: "page_view", page: "home", daysAgo: 9 }, { event: "add_to_cart", daysAgo: 10 },
+    { event: "page_view", page: "shop", daysAgo: 12 }, { event: "product_view", page: "product", daysAgo: 13 },
+  ]
+  await prisma.analyticsEvent.createMany({
+    data: EVENTS.map((e) => ({
+      event: e.event,
+      page: e.page ?? null,
+      productId: e.productId ?? null,
+      value: e.value ?? null,
+      meta: "{}",
+      createdAt: daysAgoDate(e.daysAgo, 10),
+    })),
+  })
+  console.log(`✅ ${EVENTS.length} événements analytics`)
+
+  // 11. Journal d'e-mails de démonstration (l'onglet E-mails n'est pas vide).
+  await prisma.emailLog.createMany({
+    data: [
+      {
+        to: "marie@test.fr",
+        subject: "Confirmation de commande MC-DEMO01 — MignonciteShop",
+        template: "order_confirmation",
+        body: "Bonjour Marie,\n\nMerci pour votre commande !\n  Référence : MC-DEMO01\n  TOTAL : 62,98 €\n",
+        data: '{"reference":"MC-DEMO01","total":62.98}',
+        status: "logged",
+        createdAt: daysAgoDate(2, 10),
+      },
+      {
+        to: "marie@test.fr",
+        subject: "Commande MC-DEMO01 — statut mis à jour : Expédiée — en cours de livraison",
+        template: "order_status",
+        body: "Bonjour Marie,\n\nLe statut de votre commande MC-DEMO01 vient d'être mis à jour :\n  Expédiée — en cours de livraison\n",
+        data: '{"reference":"MC-DEMO01","status":"shipped"}',
+        status: "logged",
+        createdAt: daysAgoDate(1, 10),
+      },
+      {
+        to: "sophie@test.fr",
+        subject: "De retour en stock : Lampe LED Design — MignonciteShop",
+        template: "restock_alert",
+        body: "Bonne nouvelle !\n\n« Lampe LED Design » est de nouveau disponible dans notre boutique.\n",
+        data: '{"productName":"Lampe LED Design"}',
+        status: "logged",
+        createdAt: daysAgoDate(0, 10),
+      },
+      {
+        to: "julie@test.fr",
+        subject: "Bienvenue chez MignonciteShop, Julie !",
+        template: "welcome",
+        body: "Bonjour Julie,\n\nVotre compte vient d'être créé.\nÀ très vite dans la boutique !\n",
+        data: '{"name":"Julie"}',
+        status: "logged",
+        createdAt: daysAgoDate(3, 10),
+      },
+    ],
+  })
+  console.log(`✅ 4 e-mails de démonstration journalisés`)
+
+  // 12. Journal d'audit de démonstration.
+  await prisma.auditLog.createMany({
+    data: [
+      {
+        actor: "admin@mignonciteshop.fr",
+        action: "order.status",
+        target: "MC-DEMO01",
+        details: '{"from":"paid","to":"shipped"}',
+        createdAt: daysAgoDate(1, 10),
+      },
+      {
+        actor: "admin@mignonciteshop.fr",
+        action: "product.restock",
+        target: "Lampe LED Design",
+        details: '{"stock":99,"notifications":1}',
+        createdAt: daysAgoDate(0, 10),
+      },
+      {
+        actor: "admin@mignonciteshop.fr",
+        action: "settings.update",
+        target: "",
+        details: '{"lowStockThreshold":5}',
+        createdAt: daysAgoDate(4, 10),
+      },
+    ],
+  })
+  console.log(`✅ 3 entrées d'audit de démonstration`)
+
+  // 13. Vérification finale.
   const [ordersCount, reviewsCount, pendingReviews, customersCount, promosCount] =
     await Promise.all([
       prisma.order.count(),

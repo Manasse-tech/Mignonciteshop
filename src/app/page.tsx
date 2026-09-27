@@ -19,6 +19,7 @@ import { PromotionsPage } from "@/components/shop/pages/promotions-page";
 import { AboutPage } from "@/components/shop/pages/about-page";
 import { ContactPage } from "@/components/shop/pages/contact-page";
 import { LoginPage } from "@/components/shop/pages/login-page";
+import { AccountPage } from "@/components/shop/pages/account-page";
 import { CheckoutPage } from "@/components/shop/pages/checkout-page";
 import { AdminPage } from "@/components/shop/pages/admin-page";
 import { ProductPage } from "@/components/shop/pages/product-page";
@@ -39,6 +40,7 @@ const PAGE_TITLES: Record<string, string> = {
   about: "À propos — MignonciteShop",
   contact: "Contact — MignonciteShop",
   login: "Connexion — MignonciteShop",
+  account: "Mon compte — MignonciteShop",
   checkout: "Commande — MignonciteShop",
   product: "Produit — MignonciteShop",
   wishlist: "Mes favoris — MignonciteShop",
@@ -208,6 +210,9 @@ function ShopApp() {
       break;
     case "login":
       content = <LoginPage onNavigate={navigate} />;
+      break;
+    case "account":
+      content = <AccountPage onNavigate={navigate} />;
       break;
     case "checkout":
       content = <CheckoutPage onNavigate={navigate} />;

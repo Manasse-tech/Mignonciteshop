@@ -3,6 +3,7 @@ import { z } from "zod"
 import { db } from "@/lib/db"
 import { requireAdmin, unauthorized } from "@/lib/auth-server"
 import { recalcProductRating } from "@/lib/review-utils"
+import { logAudit } from "@/lib/audit"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -78,6 +79,12 @@ export async function PATCH(request: NextRequest) {
       data: { isApproved },
     })
     await recalcProductRating(review.productId)
+    await logAudit({
+      actor: admin.email,
+      action: isApproved ? "review.approve" : "review.unpublish",
+      target: review.author,
+      details: { reviewId: id, rating: review.rating },
+    })
 
     return NextResponse.json({ ok: true, review })
   } catch (error) {
@@ -114,6 +121,12 @@ export async function DELETE(request: NextRequest) {
 
     await db.review.delete({ where: { id } })
     await recalcProductRating(existing.productId)
+    await logAudit({
+      actor: admin.email,
+      action: "review.delete",
+      target: existing.author,
+      details: { reviewId: id, comment: existing.comment.slice(0, 80) },
+    })
 
     return NextResponse.json({ ok: true })
   } catch (error) {

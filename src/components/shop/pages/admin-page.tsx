@@ -74,6 +74,8 @@ import type {
   AdminContactMessage,
   AdminSubscriber,
   AdminStockAlert,
+  AdminEmailLog,
+  AdminAuditEntry,
 } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 import { formatPrice } from "@/lib/format";
@@ -189,7 +191,9 @@ const TABS = [
   { key: "promos", label: "Codes promo" },
   { key: "clients", label: "Clients" },
   { key: "messages", label: "Messages" },
+  { key: "emails", label: "E-mails" },
   { key: "reports", label: "Rapports" },
+  { key: "audit", label: "Journal" },
   { key: "settings", label: "Paramètres" },
 ] as const;
 
@@ -246,7 +250,9 @@ function AdminDashboard() {
         {tab === "promos" && <PromosPanel refreshKey={refreshKey} />}
         {tab === "clients" && <CustomersPanel refreshKey={refreshKey} />}
         {tab === "messages" && <MessagesPanel refreshKey={refreshKey} />}
+        {tab === "emails" && <EmailsPanel refreshKey={refreshKey} />}
         {tab === "reports" && <ReportsPanel refreshKey={refreshKey} />}
+        {tab === "audit" && <AuditPanel refreshKey={refreshKey} />}
         {tab === "settings" && <SettingsPanel refreshKey={refreshKey} />}
       </div>
     </div>
@@ -486,7 +492,8 @@ function OrdersPanel({ refreshKey }: { refreshKey: number }) {
 
   const load = useCallback(async () => {
     try {
-      setOrders(await api.admin.orders());
+      const { orders: rows } = await api.admin.orders();
+      setOrders(rows);
     } catch {
       toast.error("Impossible de charger les commandes.");
     } finally {
@@ -758,7 +765,7 @@ function ProductsPanel({ refreshKey }: { refreshKey: number }) {
 
   const load = useCallback(async () => {
     try {
-      const [productRows, categoryRows] = await Promise.all([
+      const [{ products: productRows }, categoryRows] = await Promise.all([
         api.admin.products(),
         api.categories.list(),
       ]);
@@ -856,7 +863,14 @@ function ProductsPanel({ refreshKey }: { refreshKey: number }) {
     data: Partial<Product>
   ) => {
     try {
-      await api.admin.updateProduct(product.id, data);
+      const result = await api.admin.updateProduct(product.id, data);
+      // Le serveur renvoie restockNotified > 0 si un réassort (stock 0 → X)
+      // vient de déclencher l'envoi d'alertes aux clients inscrits.
+      if (result.restockNotified && result.restockNotified > 0) {
+        toast.success(
+          `Réassort : ${result.restockNotified} client(s) inscrit(s) à l'alerte notifié(s) par e-mail.`
+        );
+      }
       setProducts((prev) =>
         prev.map((p) => (p.id === product.id ? { ...p, ...data } : p))
       );
@@ -2129,6 +2143,48 @@ const SHIPPING_LABELS: Record<string, string> = {
   pickup: "Point relais",
 };
 
+const EVENT_LABELS: Record<string, string> = {
+  page_view: "Vues de page",
+  product_view: "Fiches produits vues",
+  add_to_cart: "Ajouts panier",
+  remove_from_cart: "Retraits panier",
+  begin_checkout: "Checkouts débutés",
+  purchase: "Achats",
+  apply_promo: "Codes appliqués",
+  search: "Recherches",
+  wishlist_add: "Ajouts favoris",
+  stock_alert: "Alertes réassort",
+  review_submitted: "Avis déposés",
+  newsletter_signup: "Inscriptions news.",
+  contact_submit: "Messages contact",
+};
+
+const EMAIL_TEMPLATE_LABELS: Record<string, string> = {
+  order_confirmation: "Confirmation commande",
+  order_status: "Statut commande",
+  restock_alert: "Alerte réassort",
+  welcome: "Bienvenue",
+  password_reset: "Reset mot de passe",
+  account_deleted: "Compte supprimé",
+};
+
+const AUDIT_ACTION_LABELS: Record<string, string> = {
+  "product.create": "Produit créé",
+  "product.update": "Produit modifié",
+  "product.delete": "Produit supprimé",
+  "product.restock": "Réassort notifié",
+  "order.status": "Statut commande",
+  "order.refund": "Remboursement",
+  "promo.create": "Code promo créé",
+  "promo.update": "Code promo modifié",
+  "promo.delete": "Code promo supprimé",
+  "review.approve": "Avis approuvé",
+  "review.unpublish": "Avis dépublié",
+  "review.delete": "Avis supprimé",
+  "customer.role": "Rôle compte modifié",
+  "settings.update": "Réglages boutique",
+};
+
 const PAYMENT_LABELS: Record<string, string> = {
   card: "Carte bancaire",
   paypal: "PayPal",
@@ -2425,8 +2481,325 @@ function ReportsPanel({ refreshKey }: { refreshKey: number }) {
                 )}
               </div>
             </section>
+
+            {/* Activité (analytics persistés) — pleine largeur */}
+            <section className="bg-card rounded-2xl border p-6 lg:col-span-2">
+              <h2 className="font-semibold text-foreground mb-4 flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-[#C9A961]" aria-hidden="true" />
+                Activité boutique ({report.days} jours)
+              </h2>
+              {report.analytics.events.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Aucun événement enregistré sur la période.
+                </p>
+              ) : (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                    {report.analytics.events.slice(0, 12).map((item) => (
+                      <div key={item.event} className="rounded-xl bg-muted/50 p-3 text-center">
+                        <p className="font-bold text-lg text-foreground">{item.count}</p>
+                        <p className="text-[11px] text-muted-foreground truncate" title={EVENT_LABELS[item.event] ?? item.event}>
+                          {EVENT_LABELS[item.event] ?? item.event}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Événements collectés sans cookie tiers (respect RGPD) — vues de page,
+                    ajouts panier, recherches… Les achats sont comptés dans les commandes.
+                  </p>
+                </div>
+              )}
+            </section>
           </div>
         </>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------------- */
+/* Onglet — E-mails transactionnels (journal du provider « log »)            */
+/* ------------------------------------------------------------------------- */
+
+function EmailsPanel({ refreshKey }: { refreshKey: number }) {
+  const [data, setData] = useState<{
+    emails: AdminEmailLog[];
+    total: number;
+  } | null>(null);
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
+  const [template, setTemplate] = useState("all");
+  const [open, setOpen] = useState<AdminEmailLog | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.admin
+      .emails(page, 25, search, template)
+      .then((result) => {
+        if (!cancelled) setData({ emails: result.emails, total: result.total });
+      })
+      .catch(() => {
+        if (!cancelled) {
+          toast.error("Impossible de charger les e-mails.");
+          setData({ emails: [], total: 0 });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [page, search, template, refreshKey]);
+
+  const totalPages = data ? Math.max(1, Math.ceil(data.total / 25)) : 1;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search
+            className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+            aria-hidden="true"
+          />
+          <Input
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
+            placeholder="Rechercher par destinataire ou objet…"
+            className="h-10 rounded-xl pl-9"
+            aria-label="Rechercher un e-mail"
+          />
+        </div>
+        <Select
+          value={template}
+          onValueChange={(value) => {
+            setTemplate(value);
+            setPage(1);
+          }}
+        >
+          <SelectTrigger className="w-[220px] h-10 rounded-xl" aria-label="Filtrer par type d'e-mail">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Tous les types</SelectItem>
+            {Object.entries(EMAIL_TEMPLATE_LABELS).map(([key, label]) => (
+              <SelectItem key={key} value={key}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {!data ? (
+        <PanelLoader label="Chargement des e-mails…" />
+      ) : data.emails.length === 0 ? (
+        <PanelError label="Aucun e-mail journalisé pour ce filtre." />
+      ) : (
+        <div className="bg-card rounded-2xl border overflow-hidden">
+          <ul className="divide-y divide-border/60 max-h-96 overflow-y-auto admin-scroll">
+            {data.emails.map((email) => (
+              <li key={email.id}>
+                <button
+                  type="button"
+                  onClick={() => setOpen(email)}
+                  className="w-full text-left px-4 py-3 hover:bg-muted/40 transition-colors flex items-start gap-3"
+                >
+                  <span className="rounded-lg bg-[#C9A961]/10 p-2 mt-0.5">
+                    <Mail className="w-4 h-4 text-[#C9A961]" aria-hidden="true" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex flex-wrap items-center gap-2 mb-0.5">
+                      <span className="font-medium text-sm text-foreground truncate">
+                        {email.subject}
+                      </span>
+                      <Badge className="text-[10px] bg-muted text-muted-foreground">
+                        {EMAIL_TEMPLATE_LABELS[email.template] ?? email.template}
+                      </Badge>
+                    </span>
+                    <span className="block text-xs text-muted-foreground truncate">
+                      → {email.to} · {formatDate(email.createdAt)}
+                    </span>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-muted-foreground">
+            Page {page} sur {totalPages} — {data?.total ?? 0} e-mails
+          </span>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page <= 1}
+              onClick={() => setPage((p) => p - 1)}
+            >
+              Précédent
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page >= totalPages}
+              onClick={() => setPage((p) => p + 1)}
+            >
+              Suivant
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Détail de l'e-mail */}
+      <Dialog open={open !== null} onOpenChange={(value) => !value && setOpen(null)}>
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+          {open && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="text-left">{open.subject}</DialogTitle>
+                <DialogDescription className="text-left">
+                  À {open.to} ·{" "}
+                  {EMAIL_TEMPLATE_LABELS[open.template] ?? open.template} ·{" "}
+                  {formatDate(open.createdAt)}
+                </DialogDescription>
+              </DialogHeader>
+              <pre className="whitespace-pre-wrap rounded-xl bg-muted/60 p-4 text-xs text-foreground font-mono leading-relaxed">
+                {open.body}
+              </pre>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setOpen(null)}>
+                  Fermer
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------------- */
+/* Onglet — Journal d'audit (traçabilité des actions admin)                   */
+/* ------------------------------------------------------------------------- */
+
+function AuditPanel({ refreshKey }: { refreshKey: number }) {
+  const [data, setData] = useState<{
+    entries: AdminAuditEntry[];
+    total: number;
+  } | null>(null);
+  const [page, setPage] = useState(1);
+  const [action, setAction] = useState("all");
+
+  useEffect(() => {
+    let cancelled = false;
+    api.admin
+      .audit(page, 30, action)
+      .then((result) => {
+        if (!cancelled) setData({ entries: result.entries, total: result.total });
+      })
+      .catch(() => {
+        if (!cancelled) {
+          toast.error("Impossible de charger le journal d'audit.");
+          setData({ entries: [], total: 0 });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [page, action, refreshKey]);
+
+  const totalPages = data ? Math.max(1, Math.ceil(data.total / 30)) : 1;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Select
+          value={action}
+          onValueChange={(value) => {
+            setAction(value);
+            setPage(1);
+          }}
+        >
+          <SelectTrigger className="w-[240px] h-10 rounded-xl" aria-label="Filtrer par type d'action">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Toutes les actions</SelectItem>
+            {Object.entries(AUDIT_ACTION_LABELS).map(([key, label]) => (
+              <SelectItem key={key} value={key}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <span className="text-xs text-muted-foreground">
+          Chaque action admin sensible est tracée (qui, quoi, quand) — exigence
+          de gouvernance et de sécurité.
+        </span>
+      </div>
+
+      {!data ? (
+        <PanelLoader label="Chargement du journal…" />
+      ) : data.entries.length === 0 ? (
+        <PanelError label="Aucune action enregistrée pour ce filtre." />
+      ) : (
+        <div className="bg-card rounded-2xl border overflow-hidden">
+          <ul className="divide-y divide-border/60 max-h-[28rem] overflow-y-auto admin-scroll">
+            {data.entries.map((entry) => (
+              <li
+                key={entry.id}
+                className="px-4 py-3 flex flex-wrap items-center gap-2 text-sm"
+              >
+                <Badge className="text-[10px] bg-[#C9A961]/10 text-[#a8873f] dark:text-[#C9A961]">
+                  {AUDIT_ACTION_LABELS[entry.action] ?? entry.action}
+                </Badge>
+                {entry.target && (
+                  <span className="font-medium text-foreground truncate max-w-[220px]">
+                    {entry.target}
+                  </span>
+                )}
+                <span className="text-xs text-muted-foreground truncate">
+                  par {entry.actor}
+                </span>
+                <span className="ml-auto text-xs text-muted-foreground shrink-0">
+                  {formatDate(entry.createdAt)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-muted-foreground">
+            Page {page} sur {totalPages} — {data?.total ?? 0} entrées
+          </span>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page <= 1}
+              onClick={() => setPage((p) => p - 1)}
+            >
+              Précédent
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page >= totalPages}
+              onClick={() => setPage((p) => p + 1)}
+            >
+              Suivant
+            </Button>
+          </div>
+        </div>
       )}
     </div>
   );

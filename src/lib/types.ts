@@ -55,6 +55,7 @@ export type PageKey =
   | "about"
   | "contact"
   | "login"
+  | "account"
   | "checkout"
   | "product"
   | "wishlist"

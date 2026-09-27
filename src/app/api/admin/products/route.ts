@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 import { db } from "@/lib/db"
 import { requireAdmin, unauthorized } from "@/lib/auth-server"
+import { sendEmail } from "@/lib/mailer"
+import { logAudit } from "@/lib/audit"
+import { invalidateProductsCache } from "@/lib/products-cache"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -51,17 +54,43 @@ async function uniqueSlug(base: string): Promise<string> {
 
 /**
  * GET /api/admin/products — catalogue complet (actifs ET inactifs).
+ * Query : ?page=&limit=&q=&category=&stock=low|out|inactive — pagination
+ * serveur pour survivre à un catalogue volumineux.
  */
 export async function GET(request: NextRequest) {
   const admin = await requireAdmin(request)
   if (!admin) return unauthorized()
 
   try {
-    const products = await db.product.findMany({
-      orderBy: { createdAt: "desc" },
-      include: { category: true },
-    })
-    return NextResponse.json(products)
+    const params = request.nextUrl.searchParams
+    const page = Math.max(1, Number(params.get("page")) || 1)
+    const limit = Math.min(100, Math.max(10, Number(params.get("limit")) || 100))
+    const q = params.get("q")?.trim()
+    const categoryId = params.get("category")?.trim()
+    const stockFilter = params.get("stock")
+
+    const where: Record<string, unknown> = {}
+    if (q) where.OR = [{ name: { contains: q } }, { slug: { contains: q } }]
+    if (categoryId) where.categoryId = categoryId
+    if (stockFilter === "low" || stockFilter === "out") {
+      // Seuil stock faible lu depuis les réglages boutique (default 5).
+      const { getStoreSettings } = await import("@/lib/settings")
+      const { lowStockThreshold } = await getStoreSettings()
+      where.stock = stockFilter === "out" ? 0 : { gt: 0, lte: lowStockThreshold }
+    }
+    if (stockFilter === "inactive") where.isActive = false
+
+    const [products, total] = await Promise.all([
+      db.product.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        skip: (page - 1) * limit,
+        take: limit,
+        include: { category: true },
+      }),
+      db.product.count({ where }),
+    ])
+    return NextResponse.json({ products, total, page, limit })
   } catch (error) {
     console.error("GET /api/admin/products error:", error)
     return NextResponse.json(
@@ -125,6 +154,9 @@ export async function POST(request: NextRequest) {
       include: { category: true },
     })
 
+    await logAudit({ actor: admin.email, action: "product.create", target: product.id, details: { name: product.name, price: product.price, stock: product.stock } })
+    invalidateProductsCache()
+
     return NextResponse.json({ ok: true, product })
   } catch (error) {
     console.error("POST /api/admin/products error:", error)
@@ -187,7 +219,54 @@ export async function PATCH(request: NextRequest) {
       include: { category: true },
     })
 
-    return NextResponse.json({ ok: true, product })
+    // RÉASSORT : si le stock passe de 0 à un nombre positif, on notifie
+    // toutes les personnes inscrites à l'alerte de ce produit (e-mail
+    // transactionnel + flagged notified=true, une seule fois par e-mail).
+    let restockNotified = 0
+    const wasOutOfStock = existing.stock === 0
+    const isNowInStock = (updateData.stock as number | undefined) !== undefined && (updateData.stock as number) > 0
+    if (wasOutOfStock && isNowInStock) {
+      const alerts = await db.stockAlert.findMany({
+        where: { productId: id, notified: false },
+        take: 500,
+      })
+      for (const alert of alerts) {
+        await sendEmail({
+          to: alert.email,
+          subject: `De retour en stock : ${product.name} — MignonciteShop`,
+          template: "restock_alert",
+          lines: [
+            `Bonne nouvelle !`,
+            ``,
+            `« ${product.name} » est de nouveau disponible dans notre boutique.`,
+            `Les inscriptions à l'alerte ne sont pas réservées — ne tardez pas :`,
+            ``,
+            `Prix : ${product.price.toFixed(2).replace(".", ",")} €`,
+          ],
+          data: { productId: id, productName: product.name },
+        })
+        await db.stockAlert.update({ where: { id: alert.id }, data: { notified: true } })
+        restockNotified += 1
+      }
+      if (restockNotified > 0) {
+        await logAudit({
+          actor: admin.email,
+          action: "product.restock",
+          target: product.name,
+          details: { stock: updateData.stock, notifications: restockNotified },
+        })
+      }
+    }
+
+    await logAudit({
+      actor: admin.email,
+      action: "product.update",
+      target: product.name,
+      details: { fields: Object.keys(updateData), stock: updateData.stock ?? undefined },
+    })
+    invalidateProductsCache()
+
+    return NextResponse.json({ ok: true, product, restockNotified })
   } catch (error) {
     console.error("PATCH /api/admin/products error:", error)
     return NextResponse.json(
@@ -222,6 +301,8 @@ export async function DELETE(request: NextRequest) {
     }
 
     await db.product.delete({ where: { id } })
+    await logAudit({ actor: admin.email, action: "product.delete", target: existing.name, details: { id } })
+    invalidateProductsCache()
     return NextResponse.json({ ok: true })
   } catch (error) {
     console.error("DELETE /api/admin/products error:", error)

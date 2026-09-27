@@ -3,6 +3,7 @@ import { z } from "zod"
 import { db } from "@/lib/db"
 import { requireAdmin, unauthorized } from "@/lib/auth-server"
 import { round2 } from "@/lib/order-pricing"
+import { logAudit } from "@/lib/audit"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -152,6 +153,17 @@ export async function PATCH(request: NextRequest) {
       where: { id: parsed.data.id },
       data: { role: parsed.data.role },
       select: { id: true, role: true },
+    })
+    // Sécurité : si un admin est rétrogradé, ses sessions ouvertes
+    // (potentiellement admin) sont révoquées immédiatement.
+    if (target.role === "admin" && parsed.data.role === "customer") {
+      await db.session.deleteMany({ where: { userId: target.id } })
+    }
+    await logAudit({
+      actor: admin.email,
+      action: "customer.role",
+      target: target.email,
+      details: { from: target.role, to: parsed.data.role },
     })
 
     return NextResponse.json({ ok: true, user: updated })

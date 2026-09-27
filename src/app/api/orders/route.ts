@@ -10,6 +10,8 @@ import {
   round2,
 } from "@/lib/order-pricing"
 import { getStoreSettings } from "@/lib/settings"
+import { sendEmail } from "@/lib/mailer"
+import { chargeCard } from "@/lib/payments"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -39,6 +41,16 @@ const orderSchema = z.object({
   shippingMethod: z.string().refine(isShippingMethod, "Mode de livraison invalide"),
   promoCode: z.string().max(50).nullable().optional(),
   paymentMethod: z.enum(["card", "paypal", "transfer"]).default("card"),
+  // Données carte : validées puis JAMAIS persistées en clair (PCI —
+  // seuls les 4 derniers chiffres et l'identifiant de transaction sont
+  // conservés sur la commande).
+  card: z
+    .object({
+      number: z.string().regex(/^\d{16}$/, "Le numéro de carte doit contenir 16 chiffres."),
+      holder: z.string().trim().min(2, "Veuillez saisir le nom du titulaire.").max(120),
+    })
+    .optional()
+    .nullable(),
   notes: z.string().max(500).nullable().optional(),
   address: z.object({
     line1: z.string().trim().min(1, "Adresse requise").max(160),
@@ -60,11 +72,19 @@ const orderSchema = z.object({
  *     - recalcul subtotal / remise promo (revalidée en base) / livraison / total
  *     - création Order + OrderItems (snapshot nom/image pour figer l'historique)
  *     - décrément du stock, incrément soldCount et usageCount du code promo
- *  3. Paiement "card" simulé → paymentStatus paid (webhook Stripe plus tard)
+ *  3. Paiement via la couche payments (passerelle démo, prête Stripe) :
+ *     - carte refusée → 402, AUCUNE commande créée
+ *     - carte acceptée → paymentStatus paid + transactionId persisté
+ *     - paypal/transfer → commande en attente de paiement (unpaid)
+ *  4. E-mail de confirmation + événement analytics « purchase ».
  *
- * Erreurs métier : 409 (stock insuffisant / produit indisponible),
- * 409 promo (code refusé) — rollback intégral de la transaction.
+ * Erreurs métier : 409 (stock insuffisant / produit indisponible / promo),
+ * 402 (paiement refusé) — rollback intégral de la transaction.
  */
+
+function formatEuro(value: number): string {
+  return value.toFixed(2).replace(".", ",") + " €"
+}
 export async function POST(request: NextRequest) {
   try {
     const ip = clientIp(request)
@@ -188,6 +208,28 @@ export async function POST(request: NextRequest) {
 
     const paid = data.paymentMethod === "card"
 
+    // Autorisation du paiement AVANT création de la commande (comme un
+    // vrai PSP) : si la banque refuse, rien n'est commandé ni décrémenté.
+    let transactionId: string | null = null
+    let cardLast4: string | null = null
+    if (paid) {
+      const charge = await chargeCard({
+        amount: total,
+        currency: "eur",
+        cardNumber: data.card?.number ?? "",
+        cardHolder: data.card?.holder ?? "",
+        orderReference: reference,
+      })
+      if (!charge.ok) {
+        return NextResponse.json(
+          { ok: false, error: charge.error ?? "Paiement refusé." },
+          { status: 402 }
+        )
+      }
+      transactionId = charge.transactionId
+      cardLast4 = data.card?.number.slice(-4) ?? null
+    }
+
     // TRANSACTION atomique : commande + lignes + stock + compteur promo.
     const order = await db.$transaction(async (tx) => {
       const created = await tx.order.create({
@@ -210,6 +252,8 @@ export async function POST(request: NextRequest) {
           promoCode,
           paymentMethod: data.paymentMethod,
           paymentStatus: paid ? "paid" : "unpaid",
+          transactionId,
+          cardLast4,
           notes: data.notes ?? null,
           items: {
             create: [...merged.entries()].map(([key, item]) => {
@@ -253,8 +297,51 @@ export async function POST(request: NextRequest) {
       return created
     })
 
-    // TODO e-commerce avancé : email de confirmation (Resend/SMTP),
-    // génération facture PDF, notification interne nouvelle commande.
+    // Post-traitement (fire-and-forget, ne peut pas faire échouer la
+    // commande) : e-mail de confirmation + événement analytics.
+    await Promise.all([
+      sendEmail({
+        to: order.email,
+        subject: `Confirmation de commande ${order.reference} — MignonciteShop`,
+        template: "order_confirmation",
+        lines: [
+          `Bonjour ${order.customerName},`,
+          ``,
+          `Merci pour votre commande ! Voici son récapitulatif :`,
+          ``,
+          `  Référence : ${order.reference}`,
+          `  Articles : ${order.items.map((it) => `${it.quantity}× ${it.productName}`).join(", ")}`,
+          `  Sous-total : ${formatEuro(order.subtotal)}`,
+          order.discount > 0
+            ? `  Remise (${order.promoCode ?? ""}) : -${formatEuro(order.discount)}`
+            : ``,
+          `  Livraison : ${formatEuro(order.shippingCost)}`,
+          `  TOTAL : ${formatEuro(order.total)}`,
+          ``,
+          `Suivez votre commande à tout moment depuis la page « Suivi de commande »`,
+          `de la boutique avec votre référence.`,
+        ].filter((line) => line !== null),
+        data: {
+          reference: order.reference,
+          total: order.total,
+          paymentStatus: order.paymentStatus,
+          transactionId,
+        },
+      }),
+      db.analyticsEvent.create({
+        data: {
+          event: "purchase",
+          page: "checkout",
+          value: order.total,
+          meta: JSON.stringify({
+            reference: order.reference,
+            items: order.items.length,
+            promoCode,
+          }),
+        },
+      }).catch(() => undefined),
+    ])
+
     console.log(
       `[ORDER] ${order.reference} — ${order.customerName} — total ${order.total.toFixed(2)} €`
     )

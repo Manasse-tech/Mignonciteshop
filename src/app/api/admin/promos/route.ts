@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 import { db } from "@/lib/db"
 import { requireAdmin, unauthorized } from "@/lib/auth-server"
+import { logAudit } from "@/lib/audit"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -102,6 +103,7 @@ export async function POST(request: NextRequest) {
         isActive: true,
       },
     })
+    await logAudit({ actor: admin.email, action: "promo.create", target: promo.code, details: { type: promo.type, value: promo.value, minSubtotal: promo.minSubtotal } })
     return NextResponse.json({ ok: true, promo })
   } catch (error) {
     console.error("POST /api/admin/promos error:", error)
@@ -153,6 +155,7 @@ export async function PATCH(request: NextRequest) {
     if (fields.isActive !== undefined) updateData.isActive = fields.isActive
 
     const promo = await db.promoCode.update({ where: { id }, data: updateData })
+    await logAudit({ actor: admin.email, action: "promo.update", target: promo.code, details: { fields: Object.keys(updateData), isActive: updateData.isActive } })
     return NextResponse.json({ ok: true, promo })
   } catch (error) {
     console.error("PATCH /api/admin/promos error:", error)
@@ -187,6 +190,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     await db.promoCode.delete({ where: { id } })
+    await logAudit({ actor: admin.email, action: "promo.delete", target: existing.code })
     return NextResponse.json({ ok: true })
   } catch (error) {
     console.error("DELETE /api/admin/promos error:", error)

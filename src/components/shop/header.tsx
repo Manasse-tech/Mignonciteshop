@@ -151,6 +151,10 @@ export function Header({ active, onNavigate, onSearch }: HeaderProps) {
             </span>
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={() => go("account")} className="gap-2">
+            <User className="w-4 h-4 text-[#C9A961]" aria-hidden="true" />
+            Mon compte
+          </DropdownMenuItem>
           {user.role === "admin" && (
             <DropdownMenuItem onClick={() => go("admin")} className="gap-2">
               <Shield className="w-4 h-4 text-[#C9A961]" aria-hidden="true" />
