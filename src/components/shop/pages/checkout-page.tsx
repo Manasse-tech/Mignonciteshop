@@ -36,7 +36,11 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { useShopStore, selectCartTotal } from "@/lib/store";
 import { computePromo, validatePromo, validatePromoRemote } from "@/lib/promos";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, type StoreSettingsPublic } from "@/lib/api";
+import {
+  DEFAULT_STORE_SETTINGS,
+  useStoreSettings,
+} from "@/lib/use-store-settings";
 import { trackEvent } from "@/lib/analytics";
 import type {
   CartItem,
@@ -80,36 +84,38 @@ function round2(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
-const FREE_SHIPPING_THRESHOLD = 50;
-const STANDARD_SHIPPING_COST = 4.99;
-const EXPRESS_SHIPPING_COST = 9.99;
-const PICKUP_SHIPPING_COST = 2.99;
-
-const SHIPPING_OPTIONS: ShippingOption[] = [
-  {
-    id: "standard",
-    label: "Standard",
-    description: "Livraison à domicile suivie",
-    price: STANDARD_SHIPPING_COST,
-    eta: "2 à 5 jours ouvrés",
-  },
-  {
-    id: "express",
-    label: "Express",
-    description: "Livraison prioritaire à domicile",
-    price: EXPRESS_SHIPPING_COST,
-    eta: "24h à 48h",
-  },
-  {
-    id: "pickup",
-    label: "Point relais",
-    description: "Retrait en point relais",
-    price: PICKUP_SHIPPING_COST,
-    eta: "2 à 4 jours ouvrés",
-  },
-];
-
 const COUNTRIES = ["France", "Belgique", "Suisse", "Luxembourg"] as const;
+
+/**
+ * Options de livraison — les prix sont injectés depuis les réglages
+ * de la boutique (GET /api/settings, pilotés par l'admin). L'estimation
+ * affichée n'est jamais contractuelle : le débit réel est recalculé serveur.
+ */
+function buildShippingOptions(settings: StoreSettingsPublic): ShippingOption[] {
+  return [
+    {
+      id: "standard",
+      label: "Standard",
+      description: "Livraison à domicile suivie",
+      price: settings.shipping.standard,
+      eta: "2 à 5 jours ouvrés",
+    },
+    {
+      id: "express",
+      label: "Express",
+      description: "Livraison prioritaire à domicile",
+      price: settings.shipping.express,
+      eta: "24h à 48h",
+    },
+    {
+      id: "pickup",
+      label: "Point relais",
+      description: "Retrait en point relais",
+      price: settings.shipping.pickup,
+      eta: "2 à 4 jours ouvrés",
+    },
+  ];
+}
 
 const STEPS = [
   "Informations",
@@ -118,16 +124,17 @@ const STEPS = [
   "Confirmation",
 ] as const;
 
-/** standard = 0 si sous-total ≥ 50 € ou code promo livraison offerte, sinon 4.99 €. */
+/** standard = 0 si sous-total ≥ seuil de gratuité ou promo livraison offerte. */
 function getShippingCost(
   method: ShippingMethod,
   subtotal: number,
-  freeShippingPromo: boolean
+  freeShippingPromo: boolean,
+  settings: StoreSettingsPublic
 ): number {
-  if (method === "express") return EXPRESS_SHIPPING_COST;
-  if (method === "pickup") return PICKUP_SHIPPING_COST;
-  if (subtotal >= FREE_SHIPPING_THRESHOLD || freeShippingPromo) return 0;
-  return STANDARD_SHIPPING_COST;
+  if (method === "express") return settings.shipping.express;
+  if (method === "pickup") return settings.shipping.pickup;
+  if (subtotal >= settings.freeShippingThreshold || freeShippingPromo) return 0;
+  return settings.shipping.standard;
 }
 
 /** Formatage « 1234 5678 9012 3456 » : espaces tous les 4 chiffres, 16 max. */
@@ -281,7 +288,19 @@ function CheckoutTunnel({ onComplete, onNavigate }: CheckoutTunnelProps) {
     [promo, subtotal]
   );
 
-  const shippingCost = getShippingCost(shipping, subtotal, promoComp.freeShipping);
+  // Frais de livraison pilotés depuis l'admin (réglages serveur).
+  const storeSettings = useStoreSettings();
+  const shippingOptions = useMemo(
+    () => buildShippingOptions(storeSettings),
+    [storeSettings]
+  );
+
+  const shippingCost = getShippingCost(
+    shipping,
+    subtotal,
+    promoComp.freeShipping,
+    storeSettings
+  );
   const total = round2(promoComp.discountedSubtotal + shippingCost);
   const itemsCount = cart.reduce((sum, item) => sum + item.quantity, 0);
 
@@ -663,11 +682,16 @@ function CheckoutTunnel({ onComplete, onNavigate }: CheckoutTunnelProps) {
                     aria-label="Mode de livraison"
                     className="gap-4"
                   >
-                    {SHIPPING_OPTIONS.map((option) => {
+                    {shippingOptions.map((option) => {
                       const selected = shipping === option.id;
                       const isFree =
                         option.id === "standard" &&
-                        getShippingCost("standard", subtotal, promoComp.freeShipping) === 0;
+                        getShippingCost(
+                          "standard",
+                          subtotal,
+                          promoComp.freeShipping,
+                          storeSettings
+                        ) === 0;
                       const Icon =
                         option.id === "express"
                           ? Zap
@@ -701,7 +725,7 @@ function CheckoutTunnel({ onComplete, onNavigate }: CheckoutTunnelProps) {
                             </span>
                             {option.id === "standard" && (
                               <span className="block text-xs text-muted-foreground/80 mt-0.5">
-                                Offerte dès {FREE_SHIPPING_THRESHOLD} € d&apos;achat
+                                Offerte dès {storeSettings.freeShippingThreshold} € d&apos;achat
                               </span>
                             )}
                           </span>
@@ -1156,7 +1180,7 @@ function SummarySidebar({
             )}
           </div>
           <p className="text-xs text-muted-foreground/80">
-            Offerte dès {FREE_SHIPPING_THRESHOLD} € d&apos;achat.
+            Offerte dès {storeSettings.freeShippingThreshold} € d&apos;achat.
           </p>
           <div className="border-t border-border pt-3 flex items-center justify-between">
             <span className="font-semibold text-foreground">
@@ -1293,7 +1317,8 @@ interface ConfirmationViewProps {
 
 function ConfirmationView({ order, onNavigate }: ConfirmationViewProps) {
   const firstName = order.customerName.split(" ")[0] ?? order.customerName;
-  const shippingOption = SHIPPING_OPTIONS.find(
+  // Label/ETA uniquement — le montant affiché vient du snapshot serveur.
+  const shippingOption = buildShippingOptions(DEFAULT_STORE_SETTINGS).find(
     (option) => option.id === order.shippingMethod
   );
   const addressLines = [

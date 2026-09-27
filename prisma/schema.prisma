@@ -227,3 +227,14 @@ model PromoCode {
   maxUses     Int?
   createdAt   DateTime  @default(now())
 }
+
+// ---------------------------------------------------------------------------
+// Réglages boutique (clé/valeur) — pilotés depuis l'espace admin.
+// Le serveur relit ces valeurs à CHAQUE commande (source de vérité).
+// ---------------------------------------------------------------------------
+
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}

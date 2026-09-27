@@ -103,6 +103,9 @@ export interface AdminOrder {
 export interface AdminStats {
   revenue: number;
   ordersCount: number;
+  avgOrder: number;
+  inventoryValue: number;
+  lowStockThreshold: number;
   productsCount: number;
   activeProductsCount: number;
   lowStock: number;
@@ -170,6 +173,62 @@ export interface AdminStockAlert {
   notified: boolean;
   createdAt: string;
   product: { name: string; image: string; stock: number };
+}
+
+export interface AdminCustomer {
+  id: string;
+  name: string | null;
+  email: string;
+  role: string;
+  createdAt: string;
+  ordersCount: number;
+  totalSpent: number;
+  lastOrderAt: string | null;
+}
+
+export interface AdminReport {
+  days: number;
+  revenue: number;
+  ordersCount: number;
+  avgOrder: number;
+  newCustomers: number;
+  statusBreakdown: Record<string, number>;
+  shippingBreakdown: Record<string, number>;
+  paymentBreakdown: Record<string, number>;
+  salesByCategory: { name: string; revenue: number }[];
+  topProducts: {
+    id: string;
+    name: string;
+    image: string;
+    stock: number;
+    quantity: number;
+    revenue: number;
+  }[];
+  promoUsage: Record<string, number>;
+  inventoryValue: number;
+  outOfStock: number;
+  lowStockProducts: {
+    id: string;
+    name: string;
+    image: string;
+    stock: number;
+    isActive: boolean;
+  }[];
+  pendingReviews: number;
+  avgRating: number;
+}
+
+export interface StoreSettingsPublic {
+  shipping: { standard: number; express: number; pickup: number };
+  freeShippingThreshold: number;
+}
+
+export interface AdminSettings {
+  shippingStandard: number;
+  shippingExpress: number;
+  shippingPickup: number;
+  freeShippingThreshold: number;
+  lowStockThreshold: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -297,6 +356,16 @@ export const api = {
   },
 
   // -------------------------------------------------------------------------
+  // Réglages publics (frais de livraison affichés panier / checkout) —
+  // estimation uniquement : le débit réel est recalculé dans POST /api/orders
+  // -------------------------------------------------------------------------
+  settings: {
+    get(): Promise<StoreSettingsPublic> {
+      return request<StoreSettingsPublic>("/api/settings");
+    },
+  },
+
+  // -------------------------------------------------------------------------
   // Espace administrateur — routes protégées (session cookie + rôle admin)
   // -------------------------------------------------------------------------
   admin: {
@@ -401,6 +470,27 @@ export const api = {
       stockAlerts: AdminStockAlert[];
     }> {
       return request("/api/admin/messages");
+    },
+    customers(q?: string): Promise<AdminCustomer[]> {
+      const query = q && q.trim() ? `?q=${encodeURIComponent(q.trim())}` : "";
+      return request<AdminCustomer[]>(`/api/admin/customers${query}`);
+    },
+    setCustomerRole(id: string, role: "customer" | "admin"): Promise<{ ok: boolean }> {
+      return patch("/api/admin/customers", { id, role });
+    },
+    reports(days: 7 | 30 | 90 = 30): Promise<AdminReport> {
+      return request<AdminReport>(`/api/admin/reports?days=${days}`);
+    },
+    settings(): Promise<AdminSettings> {
+      return request<AdminSettings>("/api/admin/settings");
+    },
+    updateSettings(
+      data: Partial<AdminSettings>
+    ): Promise<{ ok: boolean; settings: AdminSettings }> {
+      return patch("/api/admin/settings", data);
+    },
+    exportUrl(type: "orders" | "products" | "customers"): string {
+      return `/api/admin/export?type=${type}`;
     },
   },
 };

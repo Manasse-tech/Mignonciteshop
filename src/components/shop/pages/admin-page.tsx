@@ -4,15 +4,19 @@
  * Espace administrateur — /?page=admin
  *
  * Accès réservé au rôle "admin" (session cookie httpOnly côté serveur).
- * Onglets : Tableau de bord · Commandes · Produits · Avis · Codes promo · Messages.
+ * Onglets : Tableau de bord · Commandes · Produits · Avis · Codes promo ·
+ * Clients · Messages · Rapports · Paramètres.
  * Toutes les données passent par /api/admin/* (protégées par requireAdmin).
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   BarChart3,
+  Boxes,
   Check,
+  CreditCard,
+  Download,
   Euro,
   ImageOff,
   Loader2,
@@ -21,12 +25,18 @@ import {
   MessageSquare,
   Package,
   Pencil,
+  Percent,
   Plus,
   RefreshCw,
+  Search,
+  Settings,
   Shield,
   Star,
   Trash2,
+  TrendingUp,
+  Truck,
   Users,
+  Wallet,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -54,9 +64,12 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
 import type {
+  AdminCustomer,
   AdminOrder,
   AdminPromo,
+  AdminReport,
   AdminReview,
+  AdminSettings,
   AdminStats,
   AdminContactMessage,
   AdminSubscriber,
@@ -174,7 +187,10 @@ const TABS = [
   { key: "products", label: "Produits" },
   { key: "reviews", label: "Avis" },
   { key: "promos", label: "Codes promo" },
+  { key: "clients", label: "Clients" },
   { key: "messages", label: "Messages" },
+  { key: "reports", label: "Rapports" },
+  { key: "settings", label: "Paramètres" },
 ] as const;
 
 type AdminTab = (typeof TABS)[number]["key"];
@@ -228,7 +244,10 @@ function AdminDashboard() {
         {tab === "products" && <ProductsPanel refreshKey={refreshKey} />}
         {tab === "reviews" && <ReviewsPanel refreshKey={refreshKey} />}
         {tab === "promos" && <PromosPanel refreshKey={refreshKey} />}
+        {tab === "clients" && <CustomersPanel refreshKey={refreshKey} />}
         {tab === "messages" && <MessagesPanel refreshKey={refreshKey} />}
+        {tab === "reports" && <ReportsPanel refreshKey={refreshKey} />}
+        {tab === "settings" && <SettingsPanel refreshKey={refreshKey} />}
       </div>
     </div>
   );
@@ -268,7 +287,7 @@ function StatsPanel({ refreshKey }: { refreshKey: number }) {
   return (
     <div className="space-y-6">
       {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
         <KpiCard
           icon={<Euro className="w-5 h-5" aria-hidden="true" />}
           label="Chiffre d'affaires"
@@ -280,9 +299,19 @@ function StatsPanel({ refreshKey }: { refreshKey: number }) {
           value={String(stats.ordersCount)}
         />
         <KpiCard
+          icon={<Wallet className="w-5 h-5" aria-hidden="true" />}
+          label="Panier moyen"
+          value={formatPrice(stats.avgOrder)}
+        />
+        <KpiCard
           icon={<BarChart3 className="w-5 h-5" aria-hidden="true" />}
           label="Produits actifs"
           value={`${stats.activeProductsCount}/${stats.productsCount}`}
+        />
+        <KpiCard
+          icon={<Boxes className="w-5 h-5" aria-hidden="true" />}
+          label="Valeur du stock"
+          value={formatPrice(stats.inventoryValue)}
         />
         <KpiCard
           icon={<MessageSquare className="w-5 h-5" aria-hidden="true" />}
@@ -301,12 +330,14 @@ function StatsPanel({ refreshKey }: { refreshKey: number }) {
           {stats.daily.map((day) => (
             <div
               key={day.date}
-              className="flex-1 flex flex-col items-center gap-1 min-w-0"
+              className="flex-1 h-full flex flex-col justify-end items-center gap-1 min-w-0"
               title={`${day.date} — ${formatPrice(day.revenue)} (${day.orders} cmd)`}
             >
               <div
                 className="w-full rounded-t bg-[#C9A961]/80 hover:bg-[#C9A961] transition-colors"
-                style={{ height: `${Math.max(3, (day.revenue / maxRevenue) * 100)}%` }}
+                style={{
+                  height: `${Math.max(3, (day.revenue / maxRevenue) * 88)}%`,
+                }}
               />
               <span className="text-[9px] text-muted-foreground truncate w-full text-center">
                 {shortDate(day.date)}
@@ -397,7 +428,7 @@ function StatsPanel({ refreshKey }: { refreshKey: number }) {
         <div className="flex items-center gap-2.5 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-foreground">
           <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" aria-hidden="true" />
           {stats.lowStock} produit{stats.lowStock > 1 ? "s" : ""} en stock
-          faible (≤ 5) — pensez au réassort.
+          faible (≤ {stats.lowStockThreshold}) — pensez au réassort.
         </div>
       )}
     </div>
@@ -436,6 +467,22 @@ function OrdersPanel({ refreshKey }: { refreshKey: number }) {
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+
+  const filteredOrders = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    return orders.filter((order) => {
+      if (statusFilter !== "all" && order.status !== statusFilter) return false;
+      if (!needle) return true;
+      return (
+        order.reference.toLowerCase().includes(needle) ||
+        order.customerName.toLowerCase().includes(needle) ||
+        order.email.toLowerCase().includes(needle) ||
+        order.city.toLowerCase().includes(needle)
+      );
+    });
+  }, [orders, search, statusFilter]);
 
   const load = useCallback(async () => {
     try {
@@ -478,7 +525,58 @@ function OrdersPanel({ refreshKey }: { refreshKey: number }) {
 
   return (
     <div className="space-y-3">
-      {orders.map((order) => (
+      {/* Recherche, filtre statut et export */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative flex-1 min-w-[220px]">
+          <Search
+            className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+            aria-hidden="true"
+          />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Rechercher (référence, client, email, ville)…"
+            className="h-10 rounded-xl pl-9"
+            aria-label="Rechercher une commande"
+          />
+        </div>
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger
+            className="w-[170px] h-10 rounded-xl"
+            aria-label="Filtrer par statut"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Tous les statuts</SelectItem>
+            {Object.entries(STATUS_LABELS).map(([value, label]) => (
+              <SelectItem key={value} value={value}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button
+          variant="outline"
+          size="sm"
+          className="rounded-full gap-2 h-10"
+          asChild
+        >
+          <a
+            href={api.admin.exportUrl("orders")}
+            download
+            aria-label="Exporter les commandes en CSV"
+          >
+            <Download className={REFRESH_ICON} aria-hidden="true" />
+            Exporter CSV
+          </a>
+        </Button>
+      </div>
+
+      {filteredOrders.length === 0 ? (
+        <PanelError label="Aucune commande ne correspond à cette recherche." />
+      ) : (
+        filteredOrders.map((order) => (
         <article key={order.id} className="bg-card rounded-2xl border overflow-hidden">
           <div className="p-4 sm:p-5 flex flex-wrap items-center gap-3 sm:gap-4">
             <button
@@ -571,6 +669,7 @@ function OrdersPanel({ refreshKey }: { refreshKey: number }) {
                     (−{formatPrice(order.discount)})
                   </p>
                 )}
+                {order.notes && <p className="italic">« {order.notes} »</p>}
                 <p className="pt-1 border-t border-border/60 mt-2">
                   Sous-total {formatPrice(order.subtotal)} + livraison{" "}
                   {formatPrice(order.shippingCost)} − remise{" "}
@@ -583,7 +682,8 @@ function OrdersPanel({ refreshKey }: { refreshKey: number }) {
             </div>
           )}
         </article>
-      ))}
+      ))
+      )}
     </div>
   );
 }
@@ -633,6 +733,28 @@ function ProductsPanel({ refreshKey }: { refreshKey: number }) {
   const [form, setForm] = useState<ProductFormState>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
+  const [search, setSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [quickFilter, setQuickFilter] = useState<
+    "all" | "low" | "out" | "hidden"
+  >("all");
+
+  const filteredProducts = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    return products.filter((product) => {
+      if (categoryFilter !== "all" && product.categoryId !== categoryFilter)
+        return false;
+      if (quickFilter === "low" && !(product.stock > 0 && product.stock <= 5))
+        return false;
+      if (quickFilter === "out" && product.stock !== 0) return false;
+      if (quickFilter === "hidden" && product.isActive) return false;
+      if (!needle) return true;
+      return (
+        product.name.toLowerCase().includes(needle) ||
+        (product.category?.name ?? "").toLowerCase().includes(needle)
+      );
+    });
+  }, [products, search, categoryFilter, quickFilter]);
 
   const load = useCallback(async () => {
     try {
@@ -768,17 +890,95 @@ function ProductsPanel({ refreshKey }: { refreshKey: number }) {
 
   return (
     <div className="space-y-3">
-      <div className="flex justify-end">
+      {/* Recherche, filtres et actions */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search
+            className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+            aria-hidden="true"
+          />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Rechercher un produit…"
+            className="h-10 rounded-xl pl-9"
+            aria-label="Rechercher un produit"
+          />
+        </div>
+        <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+          <SelectTrigger
+            className="w-[180px] h-10 rounded-xl"
+            aria-label="Filtrer par catégorie"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Toutes catégories</SelectItem>
+            {categories.map((category) => (
+              <SelectItem key={category.id} value={category.id}>
+                {category.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button
+          variant="outline"
+          size="sm"
+          className="rounded-full gap-2 h-10"
+          asChild
+        >
+          <a
+            href={api.admin.exportUrl("products")}
+            download
+            aria-label="Exporter le catalogue en CSV"
+          >
+            <Download className={REFRESH_ICON} aria-hidden="true" />
+            Exporter CSV
+          </a>
+        </Button>
         <Button
           onClick={openCreate}
-          className="bg-[#C9A961] hover:bg-[#b8994f] text-white rounded-full gap-2"
+          className="bg-[#C9A961] hover:bg-[#b8994f] text-white rounded-full gap-2 h-10"
         >
           <Plus className={REFRESH_ICON} aria-hidden="true" />
           Nouveau produit
         </Button>
       </div>
 
-      {products.map((product) => (
+      {/* Filtres rapides */}
+      <div className="flex flex-wrap gap-2">
+        {(
+          [
+            { key: "all", label: "Tous" },
+            { key: "low", label: "Stock faible" },
+            { key: "out", label: "Rupture" },
+            { key: "hidden", label: "Masqués" },
+          ] as const
+        ).map((chip) => (
+          <button
+            key={chip.key}
+            type="button"
+            onClick={() => setQuickFilter(chip.key)}
+            aria-pressed={quickFilter === chip.key}
+            className={cn(
+              "rounded-full px-3.5 py-1.5 text-xs font-semibold border transition-colors",
+              quickFilter === chip.key
+                ? "bg-[#C9A961] border-[#C9A961] text-white"
+                : "bg-card border-border text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {chip.label}
+          </button>
+        ))}
+        <span className="text-xs text-muted-foreground self-center ml-auto">
+          {filteredProducts.length} produit{filteredProducts.length > 1 ? "s" : ""}
+        </span>
+      </div>
+
+      {filteredProducts.length === 0 ? (
+        <PanelError label="Aucun produit ne correspond à ces filtres." />
+      ) : (
+        filteredProducts.map((product) => (
         <article
           key={product.id}
           className="bg-card rounded-2xl border p-4 flex flex-wrap items-center gap-3 sm:gap-4"
@@ -892,7 +1092,8 @@ function ProductsPanel({ refreshKey }: { refreshKey: number }) {
             </Button>
           </div>
         </article>
-      ))}
+      ))
+      )}
 
       {/* Dialog création / édition */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -1246,12 +1447,14 @@ const PROMO_TYPE_LABELS: Record<string, string> = {
 };
 
 interface PromoFormState {
+  id?: string;
   code: string;
   label: string;
   type: "percent" | "freeship" | "amount";
   value: string;
   minSubtotal: string;
   maxUses: string;
+  expiresAt: string; // yyyy-mm-dd ou "" (jamais)
 }
 
 const EMPTY_PROMO: PromoFormState = {
@@ -1261,7 +1464,39 @@ const EMPTY_PROMO: PromoFormState = {
   value: "10",
   minSubtotal: "0",
   maxUses: "",
+  expiresAt: "",
 };
+
+/** Badges d'état d'un code promo (expiration / plafond d'utilisations). */
+function PromoStatusBadges({ promo }: { promo: AdminPromo }) {
+  const expired =
+    promo.expiresAt !== null && new Date(promo.expiresAt).getTime() < Date.now();
+  const exhausted = promo.maxUses !== null && promo.usageCount >= promo.maxUses;
+  return (
+    <div className="flex flex-wrap gap-1.5 mt-1.5">
+      {!promo.isActive && (
+        <Badge className="text-[10px] bg-red-500/15 text-red-700 dark:text-red-400">
+          Désactivé
+        </Badge>
+      )}
+      {expired && (
+        <Badge className="text-[10px] bg-amber-500/15 text-amber-700 dark:text-amber-400">
+          Expiré
+        </Badge>
+      )}
+      {exhausted && (
+        <Badge className="text-[10px] bg-amber-500/15 text-amber-700 dark:text-amber-400">
+          Limite atteinte
+        </Badge>
+      )}
+      {promo.expiresAt !== null && !expired && (
+        <Badge className="text-[10px] bg-violet-500/15 text-violet-700 dark:text-violet-400">
+          Expire le {shortDate(promo.expiresAt)}
+        </Badge>
+      )}
+    </div>
+  );
+}
 
 function PromosPanel({ refreshKey }: { refreshKey: number }) {
   const [promos, setPromos] = useState<AdminPromo[]>([]);
@@ -1283,30 +1518,58 @@ function PromosPanel({ refreshKey }: { refreshKey: number }) {
     load();
   }, [load, refreshKey]);
 
-  const handleCreate = async () => {
+  const openEdit = (promo: AdminPromo) => {
+    setForm({
+      id: promo.id,
+      code: promo.code,
+      label: promo.label,
+      type: promo.type as PromoFormState["type"],
+      value: String(promo.value),
+      minSubtotal: String(promo.minSubtotal),
+      maxUses: promo.maxUses !== null ? String(promo.maxUses) : "",
+      expiresAt: promo.expiresAt ? promo.expiresAt.slice(0, 10) : "",
+    });
+    setDialogOpen(true);
+  };
+
+  const handleSave = async () => {
     const value = Number(form.value.replace(",", "."));
     if (!form.code.trim() || !form.label.trim() || Number.isNaN(value)) {
       toast.error("Code, libellé et valeur valides sont requis.");
       return;
     }
+    if (form.type === "percent" && value > 100) {
+      toast.error("Une remise en % ne peut pas dépasser 100.");
+      return;
+    }
     setSaving(true);
+    const payload = {
+      label: form.label.trim(),
+      type: form.type,
+      value: form.type === "freeship" ? 0 : value,
+      minSubtotal: Math.max(0, Number(form.minSubtotal.replace(",", ".")) || 0),
+      maxUses: form.maxUses.trim() ? Math.round(Number(form.maxUses)) : null,
+      expiresAt: form.expiresAt
+        ? new Date(`${form.expiresAt}T23:59:59`).toISOString()
+        : null,
+    };
     try {
-      await api.admin.createPromo({
-        code: form.code.trim().toUpperCase(),
-        label: form.label.trim(),
-        type: form.type,
-        value: form.type === "freeship" ? 0 : value,
-        minSubtotal: Math.max(0, Number(form.minSubtotal.replace(",", ".")) || 0),
-        maxUses: form.maxUses.trim() ? Math.round(Number(form.maxUses)) : null,
-        expiresAt: null,
-      });
-      toast.success(`Code ${form.code.toUpperCase()} créé et actif.`);
+      if (form.id) {
+        await api.admin.updatePromo(form.id, payload);
+        toast.success(`Code ${form.code} mis à jour.`);
+      } else {
+        await api.admin.createPromo({
+          code: form.code.trim().toUpperCase(),
+          ...payload,
+        });
+        toast.success(`Code ${form.code.toUpperCase()} créé et actif.`);
+      }
       setDialogOpen(false);
       setForm(EMPTY_PROMO);
       load();
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Création impossible."
+        error instanceof Error ? error.message : "Enregistrement impossible."
       );
     } finally {
       setSaving(false);
@@ -1365,12 +1628,15 @@ function PromosPanel({ refreshKey }: { refreshKey: number }) {
               <p className="text-sm text-foreground">{promo.label}</p>
               <p className="text-xs text-muted-foreground">
                 {PROMO_TYPE_LABELS[promo.type] ?? promo.type}
-                {promo.type !== "freeship" && ` · valeur ${promo.value}`}
+                {promo.type !== "freeship" &&
+                  ` · valeur ${promo.type === "percent" ? `${promo.value} %` : `${promo.value} €`}`}
                 {promo.minSubtotal > 0 &&
                   ` · dès ${formatPrice(promo.minSubtotal)}`}
                 {` · utilisé ${promo.usageCount} fois`}
-                {promo.maxUses !== null && ` / ${promo.maxUses}`}
+                {promo.maxUses !== null &&
+                  ` / ${promo.maxUses} (${Math.min(100, Math.round((promo.usageCount / promo.maxUses) * 100))} %)`}
               </p>
+              <PromoStatusBadges promo={promo} />
             </div>
             <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
               <Switch
@@ -1380,15 +1646,26 @@ function PromosPanel({ refreshKey }: { refreshKey: number }) {
               />
               {promo.isActive ? "Actif" : "Inactif"}
             </label>
-            <Button
-              variant="outline"
-              size="icon"
-              className="h-9 w-9 rounded-full text-destructive hover:text-destructive"
-              aria-label={`Supprimer le code ${promo.code}`}
-              onClick={() => remove(promo)}
-            >
-              <Trash2 className="w-4 h-4" aria-hidden="true" />
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-9 w-9 rounded-full"
+                aria-label={`Modifier le code ${promo.code}`}
+                onClick={() => openEdit(promo)}
+              >
+                <Pencil className="w-4 h-4" aria-hidden="true" />
+              </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-9 w-9 rounded-full text-destructive hover:text-destructive"
+                aria-label={`Supprimer le code ${promo.code}`}
+                onClick={() => remove(promo)}
+              >
+                <Trash2 className="w-4 h-4" aria-hidden="true" />
+              </Button>
+            </div>
           </article>
         ))
       )}
@@ -1396,9 +1673,13 @@ function PromosPanel({ refreshKey }: { refreshKey: number }) {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Nouveau code promo</DialogTitle>
+            <DialogTitle>
+              {form.id ? `Modifier le code ${form.code}` : "Nouveau code promo"}
+            </DialogTitle>
             <DialogDescription>
-              Le code sera immédiatement utilisable en boutique.
+              {form.id
+                ? "Les modifications s'appliquent immédiatement en boutique."
+                : "Le code sera immédiatement utilisable en boutique."}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4">
@@ -1410,6 +1691,7 @@ function PromosPanel({ refreshKey }: { refreshKey: number }) {
                     setForm({ ...form, code: e.target.value.toUpperCase() })
                   }
                   placeholder="ETE25"
+                  disabled={form.id !== undefined}
                   className="h-10 rounded-xl font-mono"
                 />
               </Field>
@@ -1458,15 +1740,25 @@ function PromosPanel({ refreshKey }: { refreshKey: number }) {
                 />
               </Field>
             </div>
-            <Field label="Limite d'utilisations (vide = illimité)">
-              <Input
-                value={form.maxUses}
-                onChange={(e) => setForm({ ...form, maxUses: e.target.value })}
-                inputMode="numeric"
-                placeholder="100"
-                className="h-10 rounded-xl"
-              />
-            </Field>
+            <div className="grid sm:grid-cols-2 gap-4">
+              <Field label="Limite d'utilisations (vide = illimité)">
+                <Input
+                  value={form.maxUses}
+                  onChange={(e) => setForm({ ...form, maxUses: e.target.value })}
+                  inputMode="numeric"
+                  placeholder="100"
+                  className="h-10 rounded-xl"
+                />
+              </Field>
+              <Field label="Date d'expiration (vide = jamais)">
+                <Input
+                  type="date"
+                  value={form.expiresAt}
+                  onChange={(e) => setForm({ ...form, expiresAt: e.target.value })}
+                  className="h-10 rounded-xl"
+                />
+              </Field>
+            </div>
           </div>
           <DialogFooter className="gap-2">
             <Button
@@ -1477,12 +1769,12 @@ function PromosPanel({ refreshKey }: { refreshKey: number }) {
               Annuler
             </Button>
             <Button
-              onClick={handleCreate}
+              onClick={handleSave}
               disabled={saving}
               className="bg-[#C9A961] hover:bg-[#b8994f] text-white rounded-full gap-2"
             >
               {saving && <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />}
-              Créer le code
+              {form.id ? "Enregistrer" : "Créer le code"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1605,6 +1897,685 @@ function MessagesPanel({ refreshKey }: { refreshKey: number }) {
             </ul>
           )}
         </section>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------------- */
+/* Onglet — Clients (comptes, historique d'achat, rôles)                     */
+/* ------------------------------------------------------------------------- */
+
+function CustomersPanel({ refreshKey }: { refreshKey: number }) {
+  const [customers, setCustomers] = useState<AdminCustomer[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [roleTarget, setRoleTarget] = useState<{
+    customer: AdminCustomer;
+    nextRole: "customer" | "admin";
+  } | null>(null);
+  const [savingRole, setSavingRole] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      setCustomers(await api.admin.customers());
+    } catch {
+      toast.error("Impossible de charger les clients.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load, refreshKey]);
+
+  const filtered = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    if (!needle) return customers;
+    return customers.filter(
+      (customer) =>
+        customer.email.toLowerCase().includes(needle) ||
+        (customer.name ?? "").toLowerCase().includes(needle)
+    );
+  }, [customers, search]);
+
+  const confirmRoleChange = async () => {
+    if (!roleTarget) return;
+    setSavingRole(true);
+    try {
+      await api.admin.setCustomerRole(roleTarget.customer.id, roleTarget.nextRole);
+      setCustomers((prev) =>
+        prev.map((c) =>
+          c.id === roleTarget.customer.id ? { ...c, role: roleTarget.nextRole } : c
+        )
+      );
+      toast.success(
+        roleTarget.nextRole === "admin"
+          ? `${roleTarget.customer.email} est maintenant administrateur.`
+          : `${roleTarget.customer.email} est maintenant client.`
+      );
+      setRoleTarget(null);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Modification impossible."
+      );
+    } finally {
+      setSavingRole(false);
+    }
+  };
+
+  if (loading) return <PanelLoader label="Chargement des clients…" />;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative flex-1 min-w-[220px]">
+          <Search
+            className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+            aria-hidden="true"
+          />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Rechercher un client (nom, email)…"
+            className="h-10 rounded-xl pl-9"
+            aria-label="Rechercher un client"
+          />
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="rounded-full gap-2 h-10"
+          asChild
+        >
+          <a
+            href={api.admin.exportUrl("customers")}
+            download
+            aria-label="Exporter les clients en CSV"
+          >
+            <Download className={REFRESH_ICON} aria-hidden="true" />
+            Exporter CSV
+          </a>
+        </Button>
+        <span className="text-xs text-muted-foreground">
+          {filtered.length} compte{filtered.length > 1 ? "s" : ""}
+        </span>
+      </div>
+
+      {filtered.length === 0 ? (
+        <PanelError label="Aucun compte ne correspond à cette recherche." />
+      ) : (
+        filtered.map((customer) => (
+          <article
+            key={customer.id}
+            className="bg-card rounded-2xl border p-4 flex flex-wrap items-center gap-3 sm:gap-4"
+          >
+            <span
+              className="w-10 h-10 rounded-full bg-[#C9A961]/15 text-[#C9A961] font-bold flex items-center justify-center shrink-0 uppercase"
+              aria-hidden="true"
+            >
+              {(customer.name ?? customer.email).charAt(0)}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold text-foreground truncate">
+                {customer.name ?? "—"}
+              </p>
+              <p className="text-xs text-muted-foreground truncate">
+                {customer.email} · inscrit le {formatDate(customer.createdAt)}
+              </p>
+            </div>
+            <div className="text-xs text-muted-foreground sm:text-sm">
+              <p>
+                <span className="font-bold text-foreground">
+                  {customer.ordersCount}
+                </span>{" "}
+                commande{customer.ordersCount > 1 ? "s" : ""}
+              </p>
+              <p>
+                <span className="font-semibold text-[#C9A961]">
+                  {formatPrice(customer.totalSpent)}
+                </span>{" "}
+                dépensés
+              </p>
+              {customer.lastOrderAt && (
+                <p className="hidden sm:block">
+                  Dernière : {shortDate(customer.lastOrderAt)}
+                </p>
+              )}
+            </div>
+            <div className="flex items-center gap-2.5">
+              <Badge
+                className={cn(
+                  "text-[10px] font-semibold",
+                  customer.role === "admin"
+                    ? "bg-[#C9A961]/15 text-[#a8873f] dark:text-[#C9A961]"
+                    : "bg-muted text-muted-foreground"
+                )}
+              >
+                {customer.role === "admin" ? "Administrateur" : "Client"}
+              </Badge>
+              <Switch
+                checked={customer.role === "admin"}
+                onCheckedChange={(checked) =>
+                  setRoleTarget({
+                    customer,
+                    nextRole: checked ? "admin" : "customer",
+                  })
+                }
+                aria-label={`Rôle administrateur pour ${customer.email}`}
+                disabled={customer.role === "admin" && customers.length === 1}
+              />
+            </div>
+          </article>
+        ))
+      )}
+
+      {/* Confirmation changement de rôle */}
+      <Dialog
+        open={roleTarget !== null}
+        onOpenChange={(open) => !open && setRoleTarget(null)}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {roleTarget?.nextRole === "admin"
+                ? "Promouvoir administrateur ?"
+                : "Retirer les droits administrateur ?"}
+            </DialogTitle>
+            <DialogDescription>
+              {roleTarget?.nextRole === "admin"
+                ? `« ${roleTarget?.customer.email} » pourra accéder à l'espace de gestion (commandes, produits, réglages…).`
+                : `« ${roleTarget?.customer.email} » perdra l'accès à l'espace de gestion immédiatement.`}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setRoleTarget(null)}
+              className="rounded-full"
+            >
+              Annuler
+            </Button>
+            <Button
+              onClick={confirmRoleChange}
+              disabled={savingRole}
+              className={cn(
+                "rounded-full gap-2 text-white",
+                roleTarget?.nextRole === "admin"
+                  ? "bg-[#C9A961] hover:bg-[#b8994f]"
+                  : "bg-destructive hover:bg-destructive/90"
+              )}
+            >
+              {savingRole && (
+                <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+              )}
+              Confirmer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------------- */
+/* Onglet — Rapports (période 7/30/90 jours)                                 */
+/* ------------------------------------------------------------------------- */
+
+const SHIPPING_LABELS: Record<string, string> = {
+  standard: "Standard",
+  express: "Express",
+  pickup: "Point relais",
+};
+
+const PAYMENT_LABELS: Record<string, string> = {
+  card: "Carte bancaire",
+  paypal: "PayPal",
+  transfer: "Virement",
+};
+
+function ReportsPanel({ refreshKey }: { refreshKey: number }) {
+  const [days, setDays] = useState<7 | 30 | 90>(30);
+  const [report, setReport] = useState<AdminReport | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.admin
+      .reports(days)
+      .then((data) => {
+        if (!cancelled) setReport(data);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          toast.error("Impossible de charger le rapport.");
+          setReport(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [days, refreshKey]);
+
+  // Loader dérivé : tant que le rapport affiché ne correspond pas à la
+  // période sélectionnée, on affiche le calcul en cours (aucun setState
+  // synchrone dans l'effet).
+  const loading = !report || report.days !== days;
+
+  const maxCategoryRevenue = Math.max(
+    1,
+    ...(report?.salesByCategory.map((c) => c.revenue) ?? [1])
+  );
+
+  return (
+    <div className="space-y-6">
+      <Tabs value={String(days)} onValueChange={(value) => setDays(Number(value) as 7 | 30 | 90)}>
+        <TabsList>
+          <TabsTrigger value="7">7 jours</TabsTrigger>
+          <TabsTrigger value="30">30 jours</TabsTrigger>
+          <TabsTrigger value="90">90 jours</TabsTrigger>
+        </TabsList>
+      </Tabs>
+
+      {loading || !report ? (
+        <PanelLoader label="Calcul du rapport…" />
+      ) : (
+        <>
+          {/* KPIs période */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <KpiCard
+              icon={<Euro className="w-5 h-5" aria-hidden="true" />}
+              label={`CA ${report.days} jours`}
+              value={formatPrice(report.revenue)}
+            />
+            <KpiCard
+              icon={<Package className="w-5 h-5" aria-hidden="true" />}
+              label="Commandes"
+              value={String(report.ordersCount)}
+            />
+            <KpiCard
+              icon={<Wallet className="w-5 h-5" aria-hidden="true" />}
+              label="Panier moyen"
+              value={formatPrice(report.avgOrder)}
+            />
+            <KpiCard
+              icon={<Users className="w-5 h-5" aria-hidden="true" />}
+              label="Nouveaux clients"
+              value={String(report.newCustomers)}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Ventes par catégorie */}
+            <section className="bg-card rounded-2xl border p-6">
+              <h2 className="font-semibold text-foreground mb-4 flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-[#C9A961]" aria-hidden="true" />
+                Ventes par catégorie
+              </h2>
+              {report.salesByCategory.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Aucune vente sur la période.
+                </p>
+              ) : (
+                <ul className="space-y-3">
+                  {report.salesByCategory.map((category) => (
+                    <li key={category.name}>
+                      <div className="flex justify-between text-sm mb-1">
+                        <span className="text-foreground">{category.name}</span>
+                        <span className="font-semibold">
+                          {formatPrice(category.revenue)}
+                        </span>
+                      </div>
+                      <div className="h-2 rounded-full bg-muted overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-[#C9A961]"
+                          style={{
+                            width: `${Math.max(3, (category.revenue / maxCategoryRevenue) * 100)}%`,
+                          }}
+                        />
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            {/* Top produits de la période */}
+            <section className="bg-card rounded-2xl border p-6">
+              <h2 className="font-semibold text-foreground mb-4 flex items-center gap-2">
+                <Percent className="w-4 h-4 text-[#C9A961]" aria-hidden="true" />
+                Top produits de la période
+              </h2>
+              {report.topProducts.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Aucune vente sur la période.
+                </p>
+              ) : (
+                <ul className="space-y-3 max-h-72 overflow-y-auto pr-1 admin-scroll">
+                  {report.topProducts.map((product, index) => (
+                    <li
+                      key={product.id}
+                      className="flex items-center gap-3 text-sm border-b border-border/60 pb-3 last:pb-0 last:border-0"
+                    >
+                      <span className="w-6 h-6 rounded-full bg-[#C9A961]/15 text-[#C9A961] font-bold flex items-center justify-center text-xs shrink-0">
+                        {index + 1}
+                      </span>
+                      <ProductThumb image={product.image} name={product.name} />
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium text-foreground truncate">
+                          {product.name}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {product.quantity} article
+                          {product.quantity > 1 ? "s" : ""} vendu
+                          {product.quantity > 1 ? "s" : ""} · stock {product.stock}
+                        </p>
+                      </div>
+                      <span className="font-semibold shrink-0">
+                        {formatPrice(product.revenue)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            {/* Statuts / livraison / paiement */}
+            <section className="bg-card rounded-2xl border p-6">
+              <h2 className="font-semibold text-foreground mb-4 flex items-center gap-2">
+                <Truck className="w-4 h-4 text-[#C9A961]" aria-hidden="true" />
+                Répartition des commandes
+              </h2>
+              <div className="space-y-4 text-sm">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                    Statuts
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {Object.entries(report.statusBreakdown).length === 0 ? (
+                      <span className="text-muted-foreground">—</span>
+                    ) : (
+                      Object.entries(report.statusBreakdown).map(([status, count]) => (
+                        <span
+                          key={status}
+                          className="inline-flex items-center gap-1.5 rounded-full bg-muted px-3 py-1"
+                        >
+                          <OrderStatusBadge status={status} />
+                          <span className="font-semibold text-foreground">{count}</span>
+                        </span>
+                      ))
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                    Livraison
+                  </p>
+                  <ul className="space-y-1 text-muted-foreground">
+                    {Object.entries(report.shippingBreakdown).map(([method, count]) => (
+                      <li key={method}>
+                        {SHIPPING_LABELS[method] ?? method} :{" "}
+                        <span className="font-semibold text-foreground">{count}</span>
+                      </li>
+                    ))}
+                    {Object.keys(report.shippingBreakdown).length === 0 && <li>—</li>}
+                  </ul>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                    Paiement
+                  </p>
+                  <ul className="space-y-1 text-muted-foreground">
+                    {Object.entries(report.paymentBreakdown).map(([method, count]) => (
+                      <li key={method}>
+                        {PAYMENT_LABELS[method] ?? method} :{" "}
+                        <span className="font-semibold text-foreground">{count}</span>
+                      </li>
+                    ))}
+                    {Object.keys(report.paymentBreakdown).length === 0 && <li>—</li>}
+                  </ul>
+                </div>
+              </div>
+            </section>
+
+            {/* Codes promo + santé du stock */}
+            <section className="bg-card rounded-2xl border p-6">
+              <h2 className="font-semibold text-foreground mb-4 flex items-center gap-2">
+                <CreditCard className="w-4 h-4 text-[#C9A961]" aria-hidden="true" />
+                Codes promo &amp; stock
+              </h2>
+              <div className="space-y-4 text-sm">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                    Codes utilisés sur la période
+                  </p>
+                  {Object.entries(report.promoUsage).length === 0 ? (
+                    <p className="text-muted-foreground">Aucun code utilisé.</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {Object.entries(report.promoUsage)
+                        .sort((a, b) => b[1] - a[1])
+                        .map(([code, count]) => (
+                          <span
+                            key={code}
+                            className="inline-flex items-center gap-1.5 rounded-full bg-[#C9A961]/10 px-3 py-1 font-mono text-xs font-bold text-[#a8873f] dark:text-[#C9A961]"
+                          >
+                            {code}
+                            <span className="font-sans font-semibold">×{count}</span>
+                          </span>
+                        ))}
+                    </div>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-xl bg-muted/50 p-3">
+                    <p className="text-xs text-muted-foreground">Valeur du stock</p>
+                    <p className="font-bold text-foreground">
+                      {formatPrice(report.inventoryValue)}
+                    </p>
+                  </div>
+                  <div className="rounded-xl bg-muted/50 p-3">
+                    <p className="text-xs text-muted-foreground">En rupture</p>
+                    <p
+                      className={cn(
+                        "font-bold",
+                        report.outOfStock > 0 ? "text-amber-600" : "text-foreground"
+                      )}
+                    >
+                      {report.outOfStock} produit{report.outOfStock > 1 ? "s" : ""}
+                    </p>
+                  </div>
+                  <div className="rounded-xl bg-muted/50 p-3">
+                    <p className="text-xs text-muted-foreground">Avis en attente</p>
+                    <p className="font-bold text-foreground">{report.pendingReviews}</p>
+                  </div>
+                  <div className="rounded-xl bg-muted/50 p-3">
+                    <p className="text-xs text-muted-foreground">Note moyenne</p>
+                    <p className="font-bold text-foreground">
+                      {report.avgRating.toFixed(1)}/5
+                    </p>
+                  </div>
+                </div>
+                {report.lowStockProducts.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                      À réapprovisionner
+                    </p>
+                    <ul className="space-y-2 max-h-40 overflow-y-auto pr-1 admin-scroll">
+                      {report.lowStockProducts.map((product) => (
+                        <li key={product.id} className="flex items-center gap-2.5">
+                          <ProductThumb image={product.image} name={product.name} />
+                          <span className="min-w-0 flex-1 truncate text-foreground">
+                            {product.name}
+                          </span>
+                          <Badge
+                            className={cn(
+                              "text-[10px]",
+                              product.stock === 0
+                                ? "bg-red-500/15 text-red-700 dark:text-red-400"
+                                : "bg-amber-500/15 text-amber-700 dark:text-amber-400"
+                            )}
+                          >
+                            {product.stock === 0 ? "Rupture" : `Stock ${product.stock}`}
+                          </Badge>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </section>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------------- */
+/* Onglet — Paramètres boutique (réglages serveur)                           */
+/* ------------------------------------------------------------------------- */
+
+const SETTINGS_FIELDS: {
+  key: keyof AdminSettings;
+  label: string;
+  suffix: string;
+  hint: string;
+}[] = [
+  {
+    key: "shippingStandard",
+    label: "Livraison standard",
+    suffix: "€",
+    hint: "Facturée si le sous-total est sous le seuil de gratuité.",
+  },
+  {
+    key: "shippingExpress",
+    label: "Livraison express (24-48 h)",
+    suffix: "€",
+    hint: "Toujours payante, quelle que soit la commande.",
+  },
+  {
+    key: "shippingPickup",
+    label: "Retrait en point relais",
+    suffix: "€",
+    hint: "Toujours payant, quelle que soit la commande.",
+  },
+  {
+    key: "freeShippingThreshold",
+    label: "Seuil livraison offerte",
+    suffix: "€",
+    hint: "La livraison standard est offerte dès ce montant d'achat.",
+  },
+  {
+    key: "lowStockThreshold",
+    label: "Seuil d'alerte stock faible",
+    suffix: "unités",
+    hint: "Un produit en dessous (ou égal) déclenche l'alerte admin.",
+  },
+];
+
+function SettingsPanel({ refreshKey }: { refreshKey: number }) {
+  const [settings, setSettings] = useState<AdminSettings | null>(null);
+  const [form, setForm] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.admin
+      .settings()
+      .then((data) => {
+        if (cancelled) return;
+        setSettings(data);
+        setForm({
+          shippingStandard: String(data.shippingStandard),
+          shippingExpress: String(data.shippingExpress),
+          shippingPickup: String(data.shippingPickup),
+          freeShippingThreshold: String(data.freeShippingThreshold),
+          lowStockThreshold: String(data.lowStockThreshold),
+        });
+      })
+      .catch(() => {
+        if (!cancelled) toast.error("Impossible de charger les réglages.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshKey]);
+
+  const handleSave = async () => {
+    const parsed: Record<string, number> = {};
+    for (const field of SETTINGS_FIELDS) {
+      const value = Number((form[field.key] ?? "").replace(",", "."));
+      if (!Number.isFinite(value) || value < 0) {
+        toast.error(`Valeur invalide pour « ${field.label} ».`);
+        return;
+      }
+      parsed[field.key] =
+        field.key === "lowStockThreshold" ? Math.round(value) : value;
+    }
+    setSaving(true);
+    try {
+      const result = await api.admin.updateSettings(parsed);
+      setSettings(result.settings);
+      toast.success(
+        "Réglages enregistrés — appliqués immédiatement côté serveur."
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Enregistrement impossible."
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) return <PanelLoader label="Chargement des réglages…" />;
+  if (!settings) return <PanelError label="Réglages indisponibles." />;
+
+  return (
+    <div className="space-y-4 max-w-3xl">
+      <div className="flex items-center gap-2.5 rounded-xl border border-[#C9A961]/40 bg-[#C9A961]/5 px-4 py-3 text-sm text-foreground">
+        <Settings className="w-4 h-4 text-[#C9A961] shrink-0" aria-hidden="true" />
+        <p>
+          Ces valeurs sont la <strong>source de vérité serveur</strong> : chaque
+          commande recalcule les frais réellement débités à partir d&apos;ici.
+          Le panier et le checkout affichent automatiquement les nouveaux
+          tarifs (propagation ~30 s).
+        </p>
+      </div>
+
+      <section className="bg-card rounded-2xl border p-6 grid sm:grid-cols-2 gap-4">
+        {SETTINGS_FIELDS.map((field) => (
+          <Field key={field.key} label={`${field.label} (${field.suffix})`}>
+            <Input
+              value={form[field.key] ?? ""}
+              onChange={(e) =>
+                setForm((prev) => ({ ...prev, [field.key]: e.target.value }))
+              }
+              inputMode={
+                field.key === "lowStockThreshold" ? "numeric" : "decimal"
+              }
+              className="h-10 rounded-xl"
+              aria-label={`${field.label} en ${field.suffix}`}
+            />
+            <p className="text-xs text-muted-foreground mt-1">{field.hint}</p>
+          </Field>
+        ))}
+      </section>
+
+      <div className="flex justify-end">
+        <Button
+          onClick={handleSave}
+          disabled={saving}
+          className="bg-[#C9A961] hover:bg-[#b8994f] text-white rounded-full gap-2"
+        >
+          {saving && <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />}
+          Enregistrer les réglages
+        </Button>
       </div>
     </div>
   );

@@ -26,15 +26,13 @@ import {
 import { useShopStore, selectCartTotal } from "@/lib/store";
 import { computePromo, validatePromo, validatePromoRemote } from "@/lib/promos";
 import { trackEvent } from "@/lib/analytics";
+import { useStoreSettings } from "@/lib/use-store-settings";
 import type { PromoDefinition } from "@/lib/types";
 
 /** Fidèle au site original : « 79.99 € » (point décimal). */
 function priceLabel(price: number): string {
   return `${price.toFixed(2)} €`;
 }
-
-const FREE_SHIPPING_THRESHOLD = 50;
-const SHIPPING_COST = 4.99;
 
 const emptySubscribe = () => () => {};
 
@@ -63,6 +61,8 @@ export function CartPage({ onNavigate }: CartPageProps) {
     ? promoValidation.promo ?? null
     : null;
   const discount = computePromo(promo, subtotal).discount;
+  // Frais de livraison pilotés depuis l'admin (réglages serveur).
+  const storeSettings = useStoreSettings();
   // Évite tout décalage d'hydratation : le panier vient du localStorage.
   const mounted = useSyncExternalStore(
     emptySubscribe,
@@ -121,7 +121,10 @@ export function CartPage({ onNavigate }: CartPageProps) {
     );
   }
 
-  const shipping = subtotal >= FREE_SHIPPING_THRESHOLD ? 0 : SHIPPING_COST;
+  const shipping =
+    subtotal >= storeSettings.freeShippingThreshold
+      ? 0
+      : storeSettings.shipping.standard;
   const total = subtotal - discount + shipping;
 
   async function handleApplyPromo(event: FormEvent<HTMLFormElement>): Promise<void> {
@@ -275,7 +278,7 @@ export function CartPage({ onNavigate }: CartPageProps) {
                   )}
                 </div>
                 <p className="text-xs text-muted-foreground/80">
-                  Offerte dès {FREE_SHIPPING_THRESHOLD}€ d&apos;achat.
+                  Offerte dès {storeSettings.freeShippingThreshold}€ d&apos;achat.
                 </p>
                 <div className="border-t border-border pt-3 flex items-center justify-between">
                   <span className="font-semibold text-foreground">

@@ -7,11 +7,13 @@
  */
 
 import type { PromoCode } from "@prisma/client";
+import { DEFAULT_SETTINGS, type StoreSettings } from "@/lib/settings";
 
-export const FREE_SHIPPING_THRESHOLD = 50;
-export const STANDARD_SHIPPING_COST = 4.99;
-export const EXPRESS_SHIPPING_COST = 9.99;
-export const PICKUP_SHIPPING_COST = 2.99;
+/** Défauts historiques — remplacés par les réglages DB quand ils existent. */
+export const FREE_SHIPPING_THRESHOLD = DEFAULT_SETTINGS.freeShippingThreshold;
+export const STANDARD_SHIPPING_COST = DEFAULT_SETTINGS.shippingStandard;
+export const EXPRESS_SHIPPING_COST = DEFAULT_SETTINGS.shippingExpress;
+export const PICKUP_SHIPPING_COST = DEFAULT_SETTINGS.shippingPickup;
 
 export type ShippingMethod = "standard" | "express" | "pickup";
 
@@ -40,12 +42,13 @@ export function round2(value: number): number {
 export function computeShipping(
   method: ShippingMethod,
   subtotal: number,
-  freeShippingPromo: boolean
+  freeShippingPromo: boolean,
+  settings: StoreSettings = DEFAULT_SETTINGS
 ): number {
-  if (method === "express") return EXPRESS_SHIPPING_COST;
-  if (method === "pickup") return PICKUP_SHIPPING_COST;
-  if (subtotal >= FREE_SHIPPING_THRESHOLD || freeShippingPromo) return 0;
-  return STANDARD_SHIPPING_COST;
+  if (method === "express") return round2(settings.shippingExpress);
+  if (method === "pickup") return round2(settings.shippingPickup);
+  if (subtotal >= settings.freeShippingThreshold || freeShippingPromo) return 0;
+  return round2(settings.shippingStandard);
 }
 
 export interface PromoCheckResult {

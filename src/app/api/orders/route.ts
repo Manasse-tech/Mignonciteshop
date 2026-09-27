@@ -9,6 +9,7 @@ import {
   isShippingMethod,
   round2,
 } from "@/lib/order-pricing"
+import { getStoreSettings } from "@/lib/settings"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -171,9 +172,10 @@ export async function POST(request: NextRequest) {
       appliedPromoId = promoResult.promo.id
     }
 
-    // Livraison + total (montant réellement débité).
+    // Livraison + total (montant réellement débité — réglages boutique en base).
+    const settings = await getStoreSettings()
     const shippingMethod = data.shippingMethod as "standard" | "express" | "pickup"
-    const shippingCost = computeShipping(shippingMethod, subtotal, freeShipping)
+    const shippingCost = computeShipping(shippingMethod, subtotal, freeShipping, settings)
     const total = round2(subtotal - discount + shippingCost)
 
     // Référence unique (collision quasi impossible, boucle de sécurité).

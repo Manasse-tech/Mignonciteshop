@@ -170,6 +170,10 @@ export function LoginPage({ onNavigate }: LoginPageProps) {
                 <span className="block font-mono text-foreground mt-1 break-all">
                   admin@mignonciteshop.fr · Admin1234!
                 </span>
+                Client (avec historique de commandes) :
+                <span className="block font-mono text-foreground mt-1 break-all">
+                  marie@test.fr · Client1234!
+                </span>
               </p>
             </div>
 

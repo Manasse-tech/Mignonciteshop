@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { requireAdmin, unauthorized } from "@/lib/auth-server"
+import { getStoreSettings } from "@/lib/settings"
+import { round2 } from "@/lib/order-pricing"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -15,9 +17,12 @@ export async function GET(request: NextRequest) {
   if (!admin) return unauthorized()
 
   try {
+    const settings = await getStoreSettings()
     const [
       revenueAggregate,
+      paidOrders,
       ordersCount,
+      activeProductRows,
       productsCount,
       activeProductsCount,
       lowStock,
@@ -32,10 +37,18 @@ export async function GET(request: NextRequest) {
         where: { paymentStatus: "paid" },
         _sum: { total: true },
       }),
+      db.order.aggregate({
+        where: { paymentStatus: "paid" },
+        _count: { id: true },
+      }),
       db.order.count(),
+      db.product.findMany({
+        where: { isActive: true },
+        select: { stock: true, price: true },
+      }),
       db.product.count(),
       db.product.count({ where: { isActive: true } }),
-      db.product.count({ where: { stock: { lte: 5 } } }),
+      db.product.count({ where: { stock: { lte: settings.lowStockThreshold } } }),
       db.review.count({ where: { isApproved: false } }),
       db.contactMessage.count(),
       db.newsletterSubscriber.count(),
@@ -76,6 +89,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       revenue: revenueAggregate._sum.total ?? 0,
       ordersCount,
+      avgOrder:
+        paidOrders._count.id > 0
+          ? round2((revenueAggregate._sum.total ?? 0) / paidOrders._count.id)
+          : 0,
+      inventoryValue: round2(
+        activeProductRows.reduce((sum, p) => sum + p.stock * p.price, 0)
+      ),
+      lowStockThreshold: settings.lowStockThreshold,
       productsCount,
       activeProductsCount,
       lowStock,
