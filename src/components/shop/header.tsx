@@ -5,9 +5,11 @@ import { useTheme } from "next-themes";
 import {
   Gift,
   Heart,
+  LogOut,
   Menu,
   Moon,
   Search,
+  Shield,
   ShoppingBag,
   Sun,
   User,
@@ -19,7 +21,16 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useShopStore, selectCartCount } from "@/lib/store";
+import { useAuthStore } from "@/lib/auth-store";
 
 const NAV_ITEMS = [
   { key: "home", label: "Accueil" },
@@ -41,7 +52,8 @@ export type NavigatePage =
   | "contact"
   | "cart"
   | "wishlist"
-  | "login";
+  | "login"
+  | "admin";
 
 interface HeaderProps {
   active: string;
@@ -59,6 +71,14 @@ export function Header({ active, onNavigate, onSearch }: HeaderProps) {
   );
   const { resolvedTheme, setTheme } = useTheme();
   const cartCount = useShopStore(selectCartCount);
+  const { user, ready, hydrate, logout } = useAuthStore();
+
+  // Vérifie la session une seule fois au montage (cookie httpOnly côté serveur).
+  useEffect(() => {
+    if (!ready) {
+      void hydrate();
+    }
+  }, [ready, hydrate]);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 40);
@@ -77,6 +97,73 @@ export function Header({ active, onNavigate, onSearch }: HeaderProps) {
   const go = (page: NavigatePage) => {
     setMobileOpen(false);
     onNavigate(page);
+  };
+
+  const handleLogout = async () => {
+    setMobileOpen(false);
+    await logout();
+    toast.success("Vous êtes déconnecté. À bientôt !");
+    onNavigate("home");
+  };
+
+  const accountButton = (size: "desktop" | "mobile") => {
+    const pad = size === "desktop" ? "p-1.5 min-[400px]:p-2" : "p-2.5";
+    const visibility = size === "desktop" ? "hidden min-[380px]:block" : "";
+    const triggerClass = `${pad} hover:bg-muted rounded-full transition-colors ${visibility}`;
+
+    if (!user) {
+      return (
+        <button
+          type="button"
+          className={triggerClass}
+          aria-label="Se connecter à mon compte"
+          onClick={() => go("login")}
+        >
+          <User aria-hidden="true" />
+        </button>
+      );
+    }
+
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className={triggerClass}
+            aria-label={`Mon compte — ${user.name ?? user.email}`}
+          >
+            <span className="relative inline-flex">
+              <User aria-hidden="true" />
+              <span
+                className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-[#C9A961]"
+                aria-hidden="true"
+              />
+            </span>
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuLabel>
+            <span className="block truncate font-semibold">
+              {user.name ?? "Mon compte"}
+            </span>
+            <span className="block truncate text-xs font-normal text-muted-foreground">
+              {user.email}
+            </span>
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          {user.role === "admin" && (
+            <DropdownMenuItem onClick={() => go("admin")} className="gap-2">
+              <Shield className="w-4 h-4 text-[#C9A961]" aria-hidden="true" />
+              Espace admin
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuItem onClick={handleLogout} className="gap-2">
+            <LogOut className="w-4 h-4" aria-hidden="true" />
+            Déconnexion
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
   };
 
   const actionButtons = (size: "desktop" | "mobile") => {
@@ -119,16 +206,7 @@ export function Header({ active, onNavigate, onSearch }: HeaderProps) {
         >
           <Heart aria-hidden="true" />
         </button>
-        <button
-          type="button"
-          className={`${pad} hover:bg-muted rounded-full transition-colors ${
-            size === "desktop" ? "hidden min-[380px]:block" : ""
-          }`}
-          aria-label="Se connecter à mon compte"
-          onClick={() => go("login")}
-        >
-          <User aria-hidden="true" />
-        </button>
+        {accountButton(size)}
         <button
           type="button"
           className={`${pad} hover:bg-muted rounded-full transition-colors ${

@@ -71,6 +71,7 @@ model User {
   email         String    @unique
   emailVerified DateTime?
   password      String? // hash bcrypt
+  role          String    @default("customer") // customer | admin
   image         String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -216,6 +217,7 @@ model StockAlert {
 model PromoCode {
   id          String    @id @default(cuid())
   code        String    @unique
+  label       String    @default("")
   type        String // percent | freeship | amount
   value       Float     @default(0)
   minSubtotal Float     @default(0)

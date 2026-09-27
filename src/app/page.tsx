@@ -20,6 +20,7 @@ import { AboutPage } from "@/components/shop/pages/about-page";
 import { ContactPage } from "@/components/shop/pages/contact-page";
 import { LoginPage } from "@/components/shop/pages/login-page";
 import { CheckoutPage } from "@/components/shop/pages/checkout-page";
+import { AdminPage } from "@/components/shop/pages/admin-page";
 import { ProductPage } from "@/components/shop/pages/product-page";
 import { WishlistPage } from "@/components/shop/pages/wishlist-page";
 import { FaqPage } from "@/components/shop/pages/faq-page";
@@ -46,6 +47,7 @@ const PAGE_TITLES: Record<string, string> = {
   cgv: "Conditions Générales de Vente — MignonciteShop",
   privacy: "Confidentialité — MignonciteShop",
   legal: "Mentions légales — MignonciteShop",
+  admin: "Administration — MignonciteShop",
 };
 
 const KNOWN_PAGES = new Set(Object.keys(PAGE_TITLES));
@@ -139,7 +141,11 @@ function ShopApp() {
   );
 
   const headerActive =
-    page === "product" ? "shop" : page === "404" ? "" : page;
+    page === "product"
+      ? "shop"
+      : page === "404" || page === "admin" || page === "checkout"
+        ? ""
+        : page;
 
   let content: React.ReactNode;
   switch (page) {
@@ -243,6 +249,9 @@ function ShopApp() {
       break;
     case "legal":
       content = <LegalPage />;
+      break;
+    case "admin":
+      content = <AdminPage onNavigate={navigate} />;
       break;
     default:
       content = <NotFoundView onNavigate={navigate} />;

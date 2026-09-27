@@ -1,9 +1,8 @@
 /**
  * Couche d'accès API typée — point d'entrée unique vers le backend.
  *
- * Toutes les requêtes frontend passent ici : lors du développement du
- * backend, il suffira de compléter les endpoints sans toucher aux
- * composants. Gestion d'erreurs unifiée via ApiError.
+ * Toutes les requêtes frontend passent ici. Gestion d'erreurs unifiée
+ * via ApiError (le serveur renvoie { error: "message" } avec un statut).
  */
 
 export class ApiError extends Error {
@@ -44,6 +43,135 @@ function post<T>(url: string, body: unknown): Promise<T> {
   });
 }
 
+function patch<T>(url: string, body: unknown): Promise<T> {
+  return request<T>(url, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+function del<T>(url: string, body: unknown): Promise<T> {
+  return request<T>(url, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Types admin (contrats des routes /api/admin/*)
+// ---------------------------------------------------------------------------
+
+export interface AdminOrderItem {
+  id: string;
+  orderId: string;
+  productId: string;
+  productName: string;
+  image: string;
+  unitPrice: number;
+  quantity: number;
+  size: string | null;
+  color: string | null;
+}
+
+export interface AdminOrder {
+  id: string;
+  reference: string;
+  status: string; // pending | paid | shipped | delivered | cancelled
+  email: string;
+  customerName: string;
+  phone: string | null;
+  addressLine1: string;
+  addressLine2: string | null;
+  postalCode: string;
+  city: string;
+  country: string;
+  shippingMethod: string;
+  shippingCost: number;
+  subtotal: number;
+  discount: number;
+  total: number;
+  promoCode: string | null;
+  paymentMethod: string;
+  paymentStatus: string;
+  notes: string | null;
+  createdAt: string;
+  items: AdminOrderItem[];
+}
+
+export interface AdminStats {
+  revenue: number;
+  ordersCount: number;
+  productsCount: number;
+  activeProductsCount: number;
+  lowStock: number;
+  pendingReviews: number;
+  pendingMessages: number;
+  subscribersCount: number;
+  recentOrders: AdminOrder[];
+  topProducts: {
+    id: string;
+    name: string;
+    image: string;
+    soldCount: number;
+    price: number;
+    stock: number;
+  }[];
+  daily: { date: string; revenue: number; orders: number }[];
+}
+
+export interface AdminReview {
+  id: string;
+  productId: string;
+  author: string;
+  rating: number;
+  title: string | null;
+  comment: string;
+  isApproved: boolean;
+  helpful: number;
+  createdAt: string;
+  product: { name: string; image: string };
+}
+
+export interface AdminPromo {
+  id: string;
+  code: string;
+  label: string;
+  type: string; // percent | freeship | amount
+  value: number;
+  minSubtotal: number;
+  isActive: boolean;
+  expiresAt: string | null;
+  usageCount: number;
+  maxUses: number | null;
+  createdAt: string;
+}
+
+export interface AdminContactMessage {
+  id: string;
+  name: string;
+  email: string;
+  subject: string | null;
+  message: string;
+  createdAt: string;
+}
+
+export interface AdminSubscriber {
+  id: string;
+  email: string;
+  createdAt: string;
+}
+
+export interface AdminStockAlert {
+  id: string;
+  email: string;
+  productId: string;
+  notified: boolean;
+  createdAt: string;
+  product: { name: string; image: string; stock: number };
+}
+
 // ---------------------------------------------------------------------------
 // Catalogue
 // ---------------------------------------------------------------------------
@@ -82,7 +210,7 @@ export const api = {
   },
 
   // -------------------------------------------------------------------------
-  // Avis clients (persistance au backend : model Review)
+  // Avis clients (modération : GET = approuvés, POST = en attente)
   // -------------------------------------------------------------------------
   reviews: {
     list(productId: string): Promise<Review[]> {
@@ -93,38 +221,186 @@ export const api = {
       rating: number;
       comment: string;
       author: string;
-    }): Promise<{ ok: boolean }> {
+    }): Promise<{ ok: boolean; pending?: boolean }> {
       return post("/api/reviews", data);
     },
   },
 
   // -------------------------------------------------------------------------
-  // Commandes — ENDPOINT À CRÉER LORS DU BACKEND (model Order déjà en Prisma)
+  // Commandes — POST /api/orders (transaction serveur : prix, stock, promo)
   // -------------------------------------------------------------------------
   orders: {
-    create(data: unknown): Promise<{ ok: boolean; reference?: string }> {
-      // TODO backend : POST /api/orders (création commande + décrément stock)
+    create(data: {
+      email: string;
+      customerName: string;
+      phone?: string | null;
+      items: {
+        productId: string;
+        quantity: number;
+        size?: string | null;
+        color?: string | null;
+      }[];
+      shippingMethod: "standard" | "express" | "pickup";
+      promoCode?: string | null;
+      paymentMethod?: "card" | "paypal" | "transfer";
+      notes?: string | null;
+      address: {
+        line1: string;
+        line2?: string | null;
+        postalCode: string;
+        city: string;
+        country: string;
+      };
+    }): Promise<{
+      ok: boolean;
+      reference: string;
+      subtotal: number;
+      discount: number;
+      shippingCost: number;
+      total: number;
+    }> {
       return post("/api/orders", data);
     },
   },
 
   // -------------------------------------------------------------------------
-  // Alertes de réassort — ENDPOINT À CRÉER LORS DU BACKEND (model StockAlert)
+  // Alertes de réassort — POST /api/stock-alerts
   // -------------------------------------------------------------------------
   stockAlerts: {
     subscribe(productId: string, email: string): Promise<{ ok: boolean }> {
-      // TODO backend : POST /api/stock-alerts
       return post("/api/stock-alerts", { productId, email });
     },
   },
 
   // -------------------------------------------------------------------------
-  // Validation code promo — ENDPOINT À CRÉER LORS DU BACKEND (model PromoCode)
+  // Validation code promo — POST /api/promos/validate (source de vérité serveur)
   // -------------------------------------------------------------------------
   promos: {
-    validate(code: string, subtotal: number): Promise<{ ok: boolean; error?: string }> {
-      // TODO backend : POST /api/promos/validate
+    validate(
+      code: string,
+      subtotal: number
+    ): Promise<{
+      ok: boolean;
+      error?: string;
+      promo?: {
+        code: string;
+        label: string;
+        type: "percent" | "freeship" | "amount";
+        value: number;
+        minSubtotal: number;
+      };
+      discount?: number;
+      freeShipping?: boolean;
+    }> {
       return post("/api/promos/validate", { code, subtotal });
+    },
+  },
+
+  // -------------------------------------------------------------------------
+  // Espace administrateur — routes protégées (session cookie + rôle admin)
+  // -------------------------------------------------------------------------
+  admin: {
+    stats(): Promise<AdminStats> {
+      return request<AdminStats>("/api/admin/stats");
+    },
+    orders(): Promise<AdminOrder[]> {
+      return request<AdminOrder[]>("/api/admin/orders");
+    },
+    updateOrderStatus(id: string, status: string): Promise<{ ok: boolean }> {
+      return patch("/api/admin/orders", { id, status });
+    },
+    products(): Promise<Product[]> {
+      return request<Product[]>("/api/admin/products");
+    },
+    createProduct(data: {
+      name: string;
+      categoryId: string;
+      price: number;
+      oldPrice?: number | null;
+      stock: number;
+      description?: string;
+      details?: string;
+      image: string;
+      gallery?: string[];
+      sizes?: string[];
+      colors?: string[];
+      isFeatured?: boolean;
+      isNew?: boolean;
+      isActive?: boolean;
+    }): Promise<{ ok: boolean }> {
+      return post("/api/admin/products", data);
+    },
+    updateProduct(
+      id: string,
+      data: Partial<{
+        name: string;
+        price: number;
+        oldPrice: number | null;
+        stock: number;
+        description: string;
+        details: string;
+        image: string;
+        categoryId: string;
+        gallery: string[];
+        sizes: string[];
+        colors: string[];
+        isFeatured: boolean;
+        isNew: boolean;
+        isActive: boolean;
+      }>
+    ): Promise<{ ok: boolean }> {
+      return patch("/api/admin/products", { id, ...data });
+    },
+    deleteProduct(id: string): Promise<{ ok: boolean }> {
+      return del("/api/admin/products", { id });
+    },
+    reviews(status?: "pending" | "approved" | "all"): Promise<AdminReview[]> {
+      const query = status && status !== "all" ? `?status=${status}` : "";
+      return request<AdminReview[]>(`/api/admin/reviews${query}`);
+    },
+    setReviewApproval(id: string, isApproved: boolean): Promise<{ ok: boolean }> {
+      return patch("/api/admin/reviews", { id, isApproved });
+    },
+    deleteReview(id: string): Promise<{ ok: boolean }> {
+      return del("/api/admin/reviews", { id });
+    },
+    promos(): Promise<AdminPromo[]> {
+      return request<AdminPromo[]>("/api/admin/promos");
+    },
+    createPromo(data: {
+      code: string;
+      label: string;
+      type: "percent" | "freeship" | "amount";
+      value: number;
+      minSubtotal: number;
+      maxUses?: number | null;
+      expiresAt?: string | null;
+    }): Promise<{ ok: boolean }> {
+      return post("/api/admin/promos", data);
+    },
+    updatePromo(
+      id: string,
+      data: Partial<{
+        label: string;
+        type: "percent" | "freeship" | "amount";
+        value: number;
+        minSubtotal: number;
+        maxUses: number | null;
+        expiresAt: string | null;
+        isActive: boolean;
+      }>
+    ): Promise<{ ok: boolean }> {
+      return patch("/api/admin/promos", { id, ...data });
+    },
+    deletePromo(id: string): Promise<{ ok: boolean }> {
+      return del("/api/admin/promos", { id });
+    },
+    messages(): Promise<{
+      messages: AdminContactMessage[];
+      subscribers: AdminSubscriber[];
+      stockAlerts: AdminStockAlert[];
+    }> {
+      return request("/api/admin/messages");
     },
   },
 };

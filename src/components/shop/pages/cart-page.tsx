@@ -24,7 +24,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { useShopStore, selectCartTotal } from "@/lib/store";
-import { computePromo, validatePromo } from "@/lib/promos";
+import { computePromo, validatePromo, validatePromoRemote } from "@/lib/promos";
 import { trackEvent } from "@/lib/analytics";
 import type { PromoDefinition } from "@/lib/types";
 
@@ -51,6 +51,7 @@ export function CartPage({ onNavigate }: CartPageProps) {
   const setPromo = useShopStore((s) => s.setPromo);
   const [promoInput, setPromoInput] = useState("");
   const [promoError, setPromoError] = useState<string | null>(null);
+  const [promoChecking, setPromoChecking] = useState(false);
   // Le code promo persisté est revalidé à chaque rendu : s'il n'est plus
   // valable pour ce sous-total, il est ignoré silencieusement (computePromo
   // renvoie une remise nulle) sans jamais être retiré du store.
@@ -123,9 +124,12 @@ export function CartPage({ onNavigate }: CartPageProps) {
   const shipping = subtotal >= FREE_SHIPPING_THRESHOLD ? 0 : SHIPPING_COST;
   const total = subtotal - discount + shipping;
 
-  function handleApplyPromo(event: FormEvent<HTMLFormElement>): void {
+  async function handleApplyPromo(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
-    const result = validatePromo(promoInput, subtotal);
+    if (promoChecking) return;
+    setPromoChecking(true);
+    // Validation SERVEUR (source de vérité) : le code peut venir du back-office.
+    const result = await validatePromoRemote(promoInput, subtotal);
     if (result.ok && result.promo) {
       setPromo(result.promo.code);
       setPromoInput("");
@@ -135,6 +139,7 @@ export function CartPage({ onNavigate }: CartPageProps) {
     } else {
       setPromoError(result.error ?? "Ce code promo n'est pas valide.");
     }
+    setPromoChecking(false);
   }
 
   return (
@@ -344,9 +349,10 @@ export function CartPage({ onNavigate }: CartPageProps) {
                         </div>
                         <button
                           type="submit"
-                          className="h-11 shrink-0 rounded-full bg-[#C9A961] hover:bg-[#b8994f] text-white px-5 text-sm font-semibold transition-colors"
+                          disabled={promoChecking}
+                          className="h-11 shrink-0 rounded-full bg-[#C9A961] hover:bg-[#b8994f] text-white px-5 text-sm font-semibold transition-colors disabled:opacity-60 disabled:pointer-events-none"
                         >
-                          Appliquer
+                          {promoChecking ? "…" : "Appliquer"}
                         </button>
                       </form>
                     </CollapsibleContent>

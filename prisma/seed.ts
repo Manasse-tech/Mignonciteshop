@@ -2,8 +2,11 @@
  * Seed — Clone MignonciteShop
  * Insère les 4 catégories et les 14 produits avec EXACTEMENT les mêmes
  * données que le site original (cf. /tmp/api_products.json, /tmp/api_categories.json).
+ * + Codes promo (moteur serveur /api/promos/validate)
+ * + Compte administrateur (rôle "admin", accès /?page=admin)
  *
- * Idempotent : deleteMany puis recréation.
+ * Idempotent : deleteMany puis recréation pour le catalogue ; upsert pour
+ * promos et admin.
  * IDs et createdAt/updatedAt originaux conservés → tri createdAt DESC identique
  * au site original (Veste Légère Premium en premier, Gourde Isotherme en dernier).
  *
@@ -11,8 +14,30 @@
  */
 
 import { PrismaClient } from "@prisma/client"
+import bcrypt from "bcryptjs"
 
 const prisma = new PrismaClient()
+
+// ---------------------------------------------------------------------------
+// Codes promo (identiques aux définitions front src/lib/promos.ts)
+// ---------------------------------------------------------------------------
+
+const PROMOS = [
+  { code: "BIENVENUE10", label: "-10 % sur votre commande", type: "percent", value: 10, minSubtotal: 0 },
+  { code: "FREESHIP", label: "Livraison offerte", type: "freeship", value: 0, minSubtotal: 25 },
+  { code: "GOLD20", label: "-20 % dès 100 € d'achat", type: "percent", value: 20, minSubtotal: 100 },
+  { code: "REDUCTION5", label: "-5 € sur votre commande", type: "amount", value: 5, minSubtotal: 30 },
+]
+
+// ---------------------------------------------------------------------------
+// Administrateur (démonstration — changer le mot de passe en production)
+// ---------------------------------------------------------------------------
+
+const ADMIN = {
+  email: "admin@mignonciteshop.fr",
+  password: process.env.ADMIN_PASSWORD ?? "Admin1234!",
+  name: "Administrateur",
+}
 
 // ---------------------------------------------------------------------------
 // Catégories (ordre : order asc)
@@ -441,6 +466,25 @@ async function main() {
 
   await prisma.product.createMany({ data: products })
   console.log(`✅ ${products.length} produits créés`)
+
+  // Codes promo (upsert — jamais de doublon, réactivation à chaque seed)
+  for (const promo of PROMOS) {
+    await prisma.promoCode.upsert({
+      where: { code: promo.code },
+      update: { label: promo.label, type: promo.type, value: promo.value, minSubtotal: promo.minSubtotal, isActive: true },
+      create: { ...promo, isActive: true },
+    })
+  }
+  console.log(`✅ ${PROMOS.length} codes promo prêts`)
+
+  // Administrateur (upsert par email)
+  const passwordHash = await bcrypt.hash(ADMIN.password, 10)
+  await prisma.user.upsert({
+    where: { email: ADMIN.email },
+    update: { role: "admin", password: passwordHash, name: ADMIN.name },
+    create: { email: ADMIN.email, name: ADMIN.name, password: passwordHash, role: "admin" },
+  })
+  console.log(`✅ Administrateur : ${ADMIN.email}`)
 
   // Vérification
   const catCount = await prisma.category.count()

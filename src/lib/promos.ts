@@ -44,12 +44,92 @@ export interface PromoValidationResult {
   error?: string;
 }
 
-/** Valide un code saisi par le client (insensible à la casse / espaces). */
+/**
+ * Cache de session des codes validés côté serveur (ex: codes créés dans
+ * l'espace admin). Permet à l'affichage panier/checkout de reconnaître un
+ * code valide même s'il n'existe pas dans la liste locale. Persisté en
+ * sessionStorage pour survivre à la navigation (pas au changement d'onglet).
+ */
+const remotePromoCache = new Map<string, PromoDefinition>();
+const PROMO_CACHE_PREFIX = "mc-promo:";
+
+function cacheRemotePromo(promo: PromoDefinition): void {
+  remotePromoCache.set(promo.code, promo);
+  try {
+    window.sessionStorage.setItem(
+      `${PROMO_CACHE_PREFIX}${promo.code}`,
+      JSON.stringify(promo)
+    );
+  } catch {
+    // sessionStorage indisponible (navigation privée) : cache mémoire seul.
+  }
+}
+
+function getKnownPromo(code: string): PromoDefinition | undefined {
+  const local = PROMO_CODES.find((p) => p.code === code);
+  if (local) return local;
+  const cached = remotePromoCache.get(code);
+  if (cached) return cached;
+  try {
+    const raw = window.sessionStorage.getItem(`${PROMO_CACHE_PREFIX}${code}`);
+    if (raw) {
+      const parsed = JSON.parse(raw) as PromoDefinition;
+      remotePromoCache.set(code, parsed);
+      return parsed;
+    }
+  } catch {
+    // Ignore (SSR ou sessionStorage indisponible).
+  }
+  return undefined;
+}
+
+/**
+ * Validation SERVEUR d'un code promo (source de vérité — /api/promos/validate).
+ * Le serveur vérifie existence, activité, expiration, plafond et minimum
+ * d'achat, et renvoie la définition du code + la remise calculée.
+ *
+ * Fallback : en cas d'indisponibilité réseau (status 0), on retombe sur la
+ * validation locale (les codes seedés sont identiques) pour ne pas bloquer
+ * un client ; la commande reste de toute façon revalidée côté serveur.
+ */
+export async function validatePromoRemote(
+  rawCode: string,
+  subtotal: number
+): Promise<PromoValidationResult> {
+  const code = rawCode.trim().toUpperCase();
+  if (!code) return { ok: false, error: "Veuillez saisir un code." };
+
+  try {
+    const res = await fetch("/api/promos/validate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code, subtotal }),
+    });
+    const data = (await res.json()) as {
+      ok: boolean;
+      error?: string;
+      promo?: PromoDefinition;
+    };
+    if (!data.ok || !data.promo) {
+      return { ok: false, error: data.error ?? "Ce code promo n'est pas valide." };
+    }
+    cacheRemotePromo(data.promo);
+    return { ok: true, promo: data.promo };
+  } catch {
+    // Serveur injoignable → fallback local (ne doit jamais casser l'UX).
+    return validatePromo(rawCode, subtotal);
+  }
+}
+
+/**
+ * Valide un code connu (liste locale OU cache des codes validés serveur).
+ * Utilisé pour l'affichage panier/checkout du code déjà stocké.
+ */
 export function validatePromo(rawCode: string, subtotal: number): PromoValidationResult {
   const code = rawCode.trim().toUpperCase();
   if (!code) return { ok: false, error: "Veuillez saisir un code." };
 
-  const promo = PROMO_CODES.find((p) => p.code === code);
+  const promo = getKnownPromo(code);
   if (!promo) {
     return { ok: false, error: "Ce code promo n'est pas valide." };
   }

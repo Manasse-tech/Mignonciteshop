@@ -1,14 +1,12 @@
 "use client";
 
-import { useState } from "react";
-import { Eye, EyeOff } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Eye, EyeOff, Shield } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-
-const AUTH_UNAVAILABLE =
-  "L'authentification sera disponible prochainement. Le backend est en cours de développement.";
+import { useAuthStore, type AuthUser } from "@/lib/auth-store";
 
 interface LoginPageProps {
   onNavigate: (page: string) => void;
@@ -59,6 +57,7 @@ function PasswordInput({
 }
 
 export function LoginPage({ onNavigate }: LoginPageProps) {
+  const { setUser } = useAuthStore();
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [registerName, setRegisterName] = useState("");
@@ -66,6 +65,16 @@ export function LoginPage({ onNavigate }: LoginPageProps) {
   const [registerPassword, setRegisterPassword] = useState("");
   const [registerConfirm, setRegisterConfirm] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  // Session déjà active ? → évite de re-saisir ses identifiants.
+  useEffect(() => {
+    void useAuthStore.getState().hydrate();
+  }, []);
+
+  const redirectAfterLogin = (user: AuthUser) => {
+    // L'admin est redirigé vers son espace de gestion.
+    onNavigate(user.role === "admin" ? "admin" : "home");
+  };
 
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -77,11 +86,19 @@ export function LoginPage({ onNavigate }: LoginPageProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: loginEmail, password: loginPassword }),
       });
-      if (!response.ok) throw new Error("Auth indisponible");
-      toast.success("Connexion réussie. Bienvenue !");
-      onNavigate("home");
-    } catch {
-      toast.error(AUTH_UNAVAILABLE);
+      const data = (await response.json().catch(() => null)) as {
+        ok?: boolean;
+        error?: string;
+        user?: AuthUser;
+      } | null;
+      if (!response.ok || !data?.ok || !data.user) {
+        throw new Error(data?.error ?? "Connexion impossible.");
+      }
+      setUser(data.user);
+      toast.success(`Connexion réussie. Bienvenue ${data.user.name ?? ""} !`);
+      redirectAfterLogin(data.user);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Connexion impossible.");
     } finally {
       setSubmitting(false);
     }
@@ -109,11 +126,19 @@ export function LoginPage({ onNavigate }: LoginPageProps) {
           password: registerPassword,
         }),
       });
-      if (!response.ok) throw new Error("Auth indisponible");
+      const data = (await response.json().catch(() => null)) as {
+        ok?: boolean;
+        error?: string;
+        user?: AuthUser;
+      } | null;
+      if (!response.ok || !data?.ok || !data.user) {
+        throw new Error(data?.error ?? "Inscription impossible.");
+      }
+      setUser(data.user);
       toast.success("Compte créé. Bienvenue chez MignonciteShop !");
-      onNavigate("home");
-    } catch {
-      toast.error(AUTH_UNAVAILABLE);
+      redirectAfterLogin(data.user);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Inscription impossible.");
     } finally {
       setSubmitting(false);
     }
@@ -137,6 +162,16 @@ export function LoginPage({ onNavigate }: LoginPageProps) {
             <p className="text-center text-sm text-muted-foreground mb-6">
               Connectez-vous pour accéder à votre panier et vos commandes
             </p>
+
+            <div className="mb-5 rounded-xl border border-[#C9A961]/30 bg-[#C9A961]/5 px-4 py-3 flex items-start gap-2.5">
+              <Shield className="w-4 h-4 text-[#C9A961] mt-0.5 shrink-0" aria-hidden="true" />
+              <p className="text-xs text-muted-foreground">
+                Espace de démonstration — administrateur :
+                <span className="block font-mono text-foreground mt-1 break-all">
+                  admin@mignonciteshop.fr · Admin1234!
+                </span>
+              </p>
+            </div>
 
             <Tabs defaultValue="login">
               <TabsList className="grid grid-cols-2 w-full mb-6">

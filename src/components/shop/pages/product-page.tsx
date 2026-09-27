@@ -328,9 +328,8 @@ function ProductContent({
   const [alertEmail, setAlertEmail] = useState("");
   const [alertSubmitting, setAlertSubmitting] = useState(false);
 
-  // Avis clients — avis du backend + avis publiés dans la session
+  // Avis clients — avis du backend (approuvés uniquement, modération server-side)
   const [fetchedReviews, setFetchedReviews] = useState<Review[]>([]);
-  const [sessionReviews, setSessionReviews] = useState<Review[]>([]);
   const [reviewFormOpen, setReviewFormOpen] = useState(false);
   const [reviewAuthor, setReviewAuthor] = useState("");
   const [reviewRating, setReviewRating] = useState(0);
@@ -380,10 +379,7 @@ function ProductContent({
     () => false
   );
 
-  const allReviews = useMemo(
-    () => [...sessionReviews, ...fetchedReviews],
-    [sessionReviews, fetchedReviews]
-  );
+  const allReviews = useMemo(() => fetchedReviews, [fetchedReviews]);
 
   /* Répartition 5 → 1 déterministe (même PRNG que l'historique de prix) :
      distribution en cloche centrée sur la note moyenne, somme exacte
@@ -503,20 +499,11 @@ function ProductContent({
         comment,
         author,
       });
-      const now = new Date().toISOString();
-      setSessionReviews((prev) => [
-        {
-          id: `local-${now}`,
-          productId: product.id,
-          author,
-          rating: reviewRating,
-          title: null,
-          comment,
-          createdAt: now,
-        },
-        ...prev,
-      ]);
-      toast.success("Merci ! Votre avis a été publié.");
+      // Modération : l'avis est persisté "en attente" et publié par
+      // l'admin depuis l'espace d'administration (/?page=admin).
+      toast.success(
+        "Merci ! Votre avis a été soumis — il sera publié après validation."
+      );
       trackEvent("review_submitted", {
         productId: product.id,
         rating: reviewRating,
@@ -543,12 +530,8 @@ function ProductContent({
     if (!EMAIL_PATTERN.test(email)) return;
     setAlertSubmitting(true);
     try {
-      try {
-        await api.stockAlerts.subscribe(product.id, email);
-      } catch {
-        // Endpoint pas encore déployé côté backend : comportement démo
-        // assumé — l'alerte est considérée comme activée quand même.
-      }
+      // POST /api/stock-alerts — inscription persistée (unique email/produit).
+      await api.stockAlerts.subscribe(product.id, email);
       toast.success(
         "Alerte activée ! Vous serez prévenu(e) dès le retour en stock."
       );
@@ -556,6 +539,12 @@ function ProductContent({
       trackEvent("stock_alert", { productId: product.id });
       setStockAlertOpen(false);
       setAlertEmail("");
+    } catch (err) {
+      toast.error(
+        err instanceof ApiError
+          ? err.message
+          : "Impossible d'activer l'alerte. Réessayez plus tard."
+      );
     } finally {
       setAlertSubmitting(false);
     }

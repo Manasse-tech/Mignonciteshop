@@ -35,7 +35,8 @@ import {
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useShopStore, selectCartTotal } from "@/lib/store";
-import { computePromo, validatePromo } from "@/lib/promos";
+import { computePromo, validatePromo, validatePromoRemote } from "@/lib/promos";
+import { api, ApiError } from "@/lib/api";
 import { trackEvent } from "@/lib/analytics";
 import type {
   CartItem,
@@ -142,17 +143,8 @@ function formatExpiry(value: string): string {
   return `${digits.slice(0, 2)}/${digits.slice(2)}`;
 }
 
-/** Référence « MC-XXXXXX » : 6 caractères A-Z0-9 tirés de crypto.getRandomValues. */
-function generateOrderReference(): string {
-  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  const bytes = new Uint8Array(6);
-  crypto.getRandomValues(bytes);
-  let code = "";
-  for (let i = 0; i < 6; i += 1) {
-    code += alphabet[bytes[i] % alphabet.length];
-  }
-  return `MC-${code}`;
-}
+/* La référence de commande est désormais générée côté SERVEUR
+   (src/lib/order-pricing.ts — MC-XXXXXX unique garanti en base). */
 
 const checkoutInfoSchema = z.object({
   email: z.email("Veuillez saisir une adresse email valide."),
@@ -346,12 +338,12 @@ function CheckoutTunnel({ onComplete, onNavigate }: CheckoutTunnelProps) {
     setCardErrors({});
     setProcessing(true);
 
-    // Paiement simulé : snapshot de la commande AVANT vidage du panier,
-    // puis clearCart() + setPromo(null) exécutés exactement une fois
-    // (garde paidRef + transition d'état via onComplete).
+    // Paiement simulé : la commande est ENREGISTRÉE côté serveur
+    // (POST /api/orders — recalcul prix/stock/promo/livraison en base),
+    // puis snapshot de confirmation + clearCart() + setPromo(null)
+    // exécutés exactement une fois (garde paidRef).
     window.setTimeout(() => {
       if (paidRef.current) return;
-      paidRef.current = true;
       const address: CheckoutAddress = {
         line1: info.line1,
         line2: info.line2,
@@ -359,25 +351,59 @@ function CheckoutTunnel({ onComplete, onNavigate }: CheckoutTunnelProps) {
         city: info.city,
         country: info.country,
       };
-      const snapshot: OrderSnapshot = {
-        reference: generateOrderReference(),
-        email: info.email,
-        customerName: `${info.firstName} ${info.lastName}`.trim(),
-        items: cart.map((item) => ({ ...item })),
-        subtotal,
-        discount: promoComp.discount,
-        shippingCost,
-        total,
-        promoCode: promo?.code ?? null,
-        shippingMethod: shipping,
-        address,
-        createdAt: new Date().toISOString(),
-      };
-      trackEvent("purchase", { reference: snapshot.reference, total: snapshot.total });
-      clearCart();
-      setPromo(null);
-      setProcessing(false);
-      onComplete(snapshot);
+      api.orders
+        .create({
+          email: info.email,
+          customerName: `${info.firstName} ${info.lastName}`.trim(),
+          phone: info.phone || null,
+          items: cart.map((item) => ({
+            productId: item.productId,
+            quantity: item.quantity,
+            size: item.size,
+            color: item.color,
+          })),
+          shippingMethod: shipping,
+          promoCode: promo?.code ?? null,
+          paymentMethod: "card",
+          address,
+        })
+        .then((result) => {
+          if (paidRef.current) return;
+          paidRef.current = true;
+          const snapshot: OrderSnapshot = {
+            reference: result.reference,
+            email: info.email,
+            customerName: `${info.firstName} ${info.lastName}`.trim(),
+            items: cart.map((item) => ({ ...item })),
+            // Montants RÉELS recalculés par le serveur.
+            subtotal: result.subtotal,
+            discount: result.discount,
+            shippingCost: result.shippingCost,
+            total: result.total,
+            promoCode: promo?.code ?? null,
+            shippingMethod: shipping,
+            address,
+            createdAt: new Date().toISOString(),
+          };
+          trackEvent("purchase", {
+            reference: snapshot.reference,
+            total: snapshot.total,
+          });
+          clearCart();
+          setPromo(null);
+          onComplete(snapshot);
+        })
+        .catch((error: unknown) => {
+          // Échec (stock insuffisant, promo refusée…) : le tunnel reste
+          // utilisable — on réinitialise les verrous sans vider le panier.
+          paidRef.current = false;
+          setProcessing(false);
+          const message =
+            error instanceof ApiError
+              ? error.message
+              : "Le paiement n'a pas pu être finalisé. Réessayez.";
+          toast.error(message);
+        });
     }, 1200);
   }
 
@@ -1187,10 +1213,15 @@ function PromoCodeBox({ subtotal }: PromoCodeBoxProps) {
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>): void {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
-    const result = validatePromo(value, subtotal);
+    if (checking) return;
+    setChecking(true);
+    // Validation SERVEUR : les codes créés depuis l'espace admin sont
+    // immédiatement utilisables ici (source de vérité unique).
+    const result = await validatePromoRemote(value, subtotal);
     if (result.ok && result.promo) {
       setPromo(result.promo.code);
       trackEvent("apply_promo", { code: result.promo.code });
@@ -1201,6 +1232,7 @@ function PromoCodeBox({ subtotal }: PromoCodeBoxProps) {
     } else {
       setError(result.error ?? "Ce code promo n'est pas valide.");
     }
+    setChecking(false);
   }
 
   return (
@@ -1239,9 +1271,10 @@ function PromoCodeBox({ subtotal }: PromoCodeBoxProps) {
           </div>
           <button
             type="submit"
-            className="h-11 shrink-0 rounded-full bg-[#C9A961] hover:bg-[#b8994f] text-white px-5 text-sm font-semibold transition-colors"
+            disabled={checking}
+            className="h-11 shrink-0 rounded-full bg-[#C9A961] hover:bg-[#b8994f] text-white px-5 text-sm font-semibold transition-colors disabled:opacity-60 disabled:pointer-events-none"
           >
-            Appliquer
+            {checking ? "…" : "Appliquer"}
           </button>
         </form>
       </CollapsibleContent>
