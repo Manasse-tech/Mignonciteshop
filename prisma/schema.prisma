@@ -1,13 +1,13 @@
 // Prisma schema — Clone MignonciteShop
-// SQLite: les listes primitives ne sont pas supportées → gallery/sizes/colors
-// sont stockées en STRINGS JSON (ex: '["S","M","L","XL"]').
+// Supabase PostgreSQL : les listes primitives ne sont pas supportées par Prisma →
+// gallery/sizes/colors sont stockées en STRINGS JSON (ex: '["S","M","L","XL"]').
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 

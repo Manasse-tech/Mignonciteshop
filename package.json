@@ -3,14 +3,14 @@
   "version": "0.2.1",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3000 2>&1 | tee dev.log",
+    "dev": "set -a && . ./.env 2>/dev/null && set +a && next dev -p 3000 2>&1 | tee dev.log",
     "build": "next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/",
-    "start": "NODE_ENV=production bun .next/standalone/server.js 2>&1 | tee server.log",
+    "start": "set -a && . ./.env 2>/dev/null && set +a && NODE_ENV=production bun .next/standalone/server.js 2>&1 | tee server.log",
     "lint": "eslint .",
-    "db:push": "prisma db push --accept-data-loss",
-    "db:generate": "prisma generate",
-    "db:migrate": "prisma migrate dev",
-    "db:reset": "prisma migrate reset"
+    "db:push": "set -a && . ./.env 2>/dev/null && set +a && prisma db push --accept-data-loss",
+    "db:generate": "set -a && . ./.env 2>/dev/null && set +a && prisma generate",
+    "db:migrate": "set -a && . ./.env 2>/dev/null && set +a && prisma migrate dev",
+    "db:reset": "set -a && . ./.env 2>/dev/null && set +a && prisma migrate reset"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
