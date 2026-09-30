@@ -1,7 +1,3 @@
-// Prisma schema — Clone MignonciteShop
-// SQLite: les listes primitives ne sont pas supportées → gallery/sizes/colors
-// sont stockées en STRINGS JSON (ex: '["S","M","L","XL"]').
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -11,116 +7,119 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ---------------------------------------------------------------------------
-// Catalogue
-// ---------------------------------------------------------------------------
+model User {
+  id              String     @id @default(cuid())
+  email           String     @unique
+  passwordHash    String
+  name            String     @default("Administrateur")
+  role            String     @default("admin") // 'admin' | 'user'
+  supabaseUserId  String?    @unique // UID Supabase Auth (miroir) — lien RLS auth.uid()
+  orders          Order[]    // comptes clients : historique rattaché (invités historiques → userId null)
+  reviews         Review[]
+  cartItems       CartItem[] // collection Cart (5ᵉ collection de l'original Base44)
+  resetTokens     PasswordResetToken[]
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+}
 
 model Category {
-  id          String   @id @default(cuid())
-  name        String
-  slug        String   @unique
-  description String   @default("")
-  image       String   @default("")
-  order       Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id          String    @id @default(cuid())
+  name        String    @unique
+  slug        String    @unique
+  description String?
+  image       String?
+  order       Int       @default(0)
   products    Product[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 }
 
 model Product {
-  id          String   @id @default(cuid())
+  id          String      @id @default(cuid())
   name        String
-  slug        String   @unique
-  description String   @default("")
-  details     String   @default("")
+  slug        String      @unique
+  description String?
+  details     String?
   price       Float
   oldPrice    Float?
   image       String
-  // STRING JSON (ex: '["/images/products/a.jpg","/images/products/b.jpg"]')
-  gallery     String   @default("[]")
-  categoryId  String
-  category    Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-  stock       Int      @default(0)
-  rating      Float    @default(0)
-  reviewCount Int      @default(0)
-  soldCount   Int      @default(0)
-  isFeatured  Boolean  @default(false)
-  isNew       Boolean  @default(false)
-  isActive    Boolean  @default(true)
-  // STRING JSON (ex: '["S","M"]')
-  sizes       String   @default("[]")
-  // STRING JSON (ex: '["Noir"]')
-  colors      String   @default("[]")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  reviews      Review[]
-  stockAlerts  StockAlert[]
-
-  @@index([categoryId])
-  @@index([createdAt])
+  gallery     String?     @default("[]")
+  categoryId  String?
+  category    Category?   @relation(fields: [categoryId], references: [id])
+  stock       Int         @default(0)
+  rating      Float       @default(4)
+  reviewCount Int         @default(0)
+  soldCount   Int         @default(0)
+  isFeatured  Boolean     @default(false)
+  isNew       Boolean     @default(false)
+  isActive    Boolean     @default(true)
+  sizes       String?     @default("[]")
+  colors      String?     @default("[]")
+  reviews     Review[]
+  questions   ProductQuestion[]
+  orderItems  OrderItem[]
+  cartItems   CartItem[]
+  priceHistory PriceHistory[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
 }
 
-// ---------------------------------------------------------------------------
-// Auth (NextAuth v4)
-// ---------------------------------------------------------------------------
+model Order {
+  id             String      @id @default(cuid())
+  orderNumber    String      @unique
+  userId         String?     // compte client propriétaire (null = commande invité historique)
+  user           User?       @relation(fields: [userId], references: [id])
+  customerName   String
+  customerEmail  String
+  phone          String?
+  address        String
+  city           String
+  postalCode     String?
+  country        String      @default("France")
+  paymentMethod  String      @default("card")
+  shippingMethod String      @default("standard")
+  subtotal       Float
+  shipping       Float       @default(0)
+  discount       Float       @default(0)
+  promoCode      String?
+  total          Float
+  status         String      @default("confirmee")
+  pointsUsed     Int         @default(0)
+  notes          String?
+  items          OrderItem[]
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
 
-model User {
-  id            String    @id @default(cuid())
-  name          String?
-  email         String    @unique
-  emailVerified DateTime?
-  password      String? // hash bcrypt
-  role          String    @default("customer") // customer | admin
-  image         String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  accounts      Account[]
-  sessions      Session[]
+  @@index([userId])
 }
 
-model Account {
-  id                String  @id @default(cuid())
-  userId            String
-  type              String
-  provider          String
-  providerAccountId String
-  refresh_token     String?
-  access_token      String?
-  expires_at        Int?
-  token_type        String?
-  scope             String?
-  id_token          String?
-  session_state     String?
-  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([provider, providerAccountId])
-}
-
-model Session {
-  id           String   @id @default(cuid())
-  sessionToken String   @unique
-  userId       String
-  expires      DateTime
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
-
-model VerificationToken {
-  identifier String
-  token      String   @unique
-  expires    DateTime
-
-  @@unique([identifier, token])
-}
-
-// ---------------------------------------------------------------------------
-// Marketing / contact
-// ---------------------------------------------------------------------------
-
-model NewsletterSubscriber {
+model OrderItem {
   id        String   @id @default(cuid())
-  email     String   @unique
-  createdAt DateTime @default(now())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id])
+  name      String
+  price     Float
+  image     String?
+  quantity  Int      @default(1)
+}
+
+model Review {
+  id           String   @id @default(cuid())
+  productId    String
+  product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userId       String?  // auteur connecté (avis des comptes clients)
+  user         User?    @relation(fields: [userId], references: [id])
+  author       String
+  email        String?
+  rating       Int      @default(5)
+  title        String?
+  content      String
+  status       String   @default("pending")
+  helpfulCount Int      @default(0)
+  photos       String?  @default("[]")
+  createdAt    DateTime @default(now())
 }
 
 model ContactMessage {
@@ -129,170 +128,100 @@ model ContactMessage {
   email     String
   subject   String?
   message   String
+  isRead    Boolean  @default(false)
   createdAt DateTime @default(now())
 }
 
-// ---------------------------------------------------------------------------
-// Commandes (B2C checkout) — schéma prêt pour POST /api/orders
-// ---------------------------------------------------------------------------
-
-model Order {
-  id             String      @id @default(cuid())
-  reference      String      @unique // ex: MC-7F3K2A
-  status         String      @default("pending") // pending | paid | shipped | delivered | cancelled
-  email          String
-  customerName   String
-  phone          String?
-  // Adresse de livraison dénormalisée (simplicité SQLite / une adresse par commande)
-  addressLine1   String
-  addressLine2   String?
-  postalCode     String
-  city           String
-  country        String      @default("France")
-  shippingMethod String      @default("standard") // standard | express | pickup
-  shippingCost   Float       @default(0)
-  subtotal       Float
-  discount       Float       @default(0)
-  total          Float
-  promoCode      String?
-  paymentMethod  String      @default("card") // card | paypal | transfer
-  paymentStatus  String      @default("unpaid") // unpaid | paid | refunded
-  transactionId  String? // identifiant du provider de paiement (ch_demo_… / ch_stripe_…)
-  cardLast4      String? // 4 derniers chiffres seulement (jamais le numéro complet)
-  notes          String?
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
-  items          OrderItem[]
-
-  @@index([email])
-  @@index([createdAt])
-  @@index([status])
-}
-
-model OrderItem {
-  id          String  @id @default(cuid())
-  orderId     String
-  order       Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  productId   String
-  productName String
-  image       String
-  unitPrice   Float
-  quantity    Int
-  size        String?
-  color       String?
-
-  @@index([orderId])
-}
-
-// ---------------------------------------------------------------------------
-// Avis clients vérifiés + alertes de réassort + codes promo
-// ---------------------------------------------------------------------------
-
-model Review {
-  id         String   @id @default(cuid())
-  productId  String
-  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-  author     String
-  rating     Int // 1..5
-  title      String?
-  comment    String
-  isApproved Boolean  @default(false) // modération avant publication
-  helpful    Int      @default(0)
-  createdAt  DateTime @default(now())
-
-  @@index([productId])
-  @@index([createdAt])
-}
-
-model StockAlert {
+model NewsletterSubscriber {
   id        String   @id @default(cuid())
-  email     String
-  productId String
-  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-  notified  Boolean  @default(false)
+  email     String   @unique
   createdAt DateTime @default(now())
-
-  @@unique([email, productId])
-  @@index([productId])
 }
 
 model PromoCode {
-  id          String    @id @default(cuid())
-  code        String    @unique
-  label       String    @default("")
-  type        String // percent | freeship | amount
-  value       Float     @default(0)
-  minSubtotal Float     @default(0)
-  isActive    Boolean   @default(true)
-  expiresAt   DateTime?
-  usageCount  Int       @default(0)
-  maxUses     Int?
-  createdAt   DateTime  @default(now())
+  id         String    @id @default(cuid())
+  code       String    @unique
+  type       String    @default("percent") // percent | fixed | shipping
+  value      Float     @default(0)
+  label      String
+  active     Boolean   @default(true)
+  usageCount Int       @default(0)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 }
 
-// ---------------------------------------------------------------------------
-// Réglages boutique (clé/valeur) — pilotés depuis l'espace admin.
-// Le serveur relit ces valeurs à CHAQUE commande (source de vérité).
-// ---------------------------------------------------------------------------
-
-model Setting {
-  key       String   @id
-  value     String
-  updatedAt DateTime @updatedAt
+model ProductQuestion {
+  id           String    @id @default(cuid())
+  productId    String
+  product      Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  author       String
+  question     String
+  answer       String?
+  status       String    @default("pending") // pending | answered | hidden
+  helpfulCount Int       @default(0)
+  answeredAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 }
 
-// ---------------------------------------------------------------------------
-// Analytics — événements de navigation/métier persistés (fin du no-op 204).
-// Source : src/lib/analytics.ts côté client → POST /api/analytics.
-// ---------------------------------------------------------------------------
+// Collection Cart de l'original Base44 (5ᵉ collection) : panier persisté par compte.
+// Un variant (taille/couleur) = une ligne ; variantKey = "taille|couleur" ("|" si absents).
+model CartItem {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId  String
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variantKey String   @default("|")
+  quantity   Int      @default(1)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
-model AnalyticsEvent {
+  @@unique([userId, productId, variantKey])
+}
+
+model PriceHistory {
   id        String   @id @default(cuid())
-  event     String // page_view | product_view | add_to_cart | purchase | ...
-  page      String?  // page SPA concernée (?page=...)
-  productId String?
-  value     Float?   // montant éventuel (purchase…)
-  meta      String   @default("{}") // JSON libre (payload restant)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  price     Float
+  oldPrice  Float?
   createdAt DateTime @default(now())
 
-  @@index([event])
-  @@index([createdAt])
+  @@index([productId, createdAt])
 }
 
-// ---------------------------------------------------------------------------
-// Journal des e-mails transactionnels « envoyés ».
-// En sandbox (pas de SMTP), le provider LOG persiste chaque e-mail ici :
-// l'admin peut les consulter dans l'onglet E-mails. Le jour où des clés
-// SMTP/Resend arrivent, il suffit d'ajouter un provider dans src/lib/mailer.
-// ---------------------------------------------------------------------------
-
+// Journal des emails transactionnels. Mode outbox (dev/sans clé) : l'email est
+// stocké ici et consultable dans l'admin ; mode Resend (RESEND_API_KEY définie) :
+// envoyé réellement, avec traçabilité du statut et des erreurs provider.
 model EmailLog {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   to        String
   subject   String
-  template  String // order_confirmation | order_status | restock_alert | welcome | password_reset | account_deleted
-  body      String   @default("") // texte lisible (rendu simple)
-  data      String   @default("{}") // JSON (référence commande, token, produit…)
-  status    String   @default("logged") // logged | sent | failed
+  template  String // 'order-confirmation' | 'password-reset'
+  status    String    @default("pending") // sent | outbox | failed
+  provider  String    @default("outbox") // resend | outbox
   error     String?
-  createdAt DateTime @default(now())
+  orderId   String?
+  userId    String?
+  html      String    @default("")
+  createdAt DateTime  @default(now())
+  sentAt    DateTime?
 
-  @@index([to])
   @@index([createdAt])
 }
 
-// ---------------------------------------------------------------------------
-// Journal d'audit admin — trace écrite de chaque action sensible.
-// ---------------------------------------------------------------------------
+// Jeton de réinitialisation de mot de passe : seul le SHA-256 du jeton est
+// stocké (une fuite de la base ne permet pas de réutiliser les liens).
+// Expiration 30 min, usage unique (usedAt), jetons précédents invalidés.
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
 
-model AuditLog {
-  id        String   @id @default(cuid())
-  actor     String // email de l'admin
-  action    String // product.create | order.status | promo.create | review.approve | ...
-  target    String   @default("") // identifiant visé (id, référence…)
-  details   String   @default("{}") // JSON (avant/après)
-  createdAt DateTime @default(now())
-
-  @@index([action])
-  @@index([createdAt])
+  @@index([userId])
 }
