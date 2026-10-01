@@ -41,8 +41,7 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
-import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
-import { fbStorage, friendlyFirebaseError } from "@/lib/firebase";
+import { friendlyFirebaseError } from "@/lib/firebase";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -160,10 +159,13 @@ function CsvExportButton({
 }
 
 /**
- * Champ image — upload direct vers Firebase Storage (chemin `uploads/`,
- * images uniquement, 2 Mo max) avec prévisualisation, ou saisie d'URL.
+ * Champ image — saisie d'URL PUBLIQUE (Firebase Storage supprimé, plan Spark) :
+ * renseigner l'URL, prévisualiser, modifier, supprimer. L'URL est stockée
+ * dans Firestore (products.image / categories.image) et accessible à tous.
+ * Aucun fichier n'est stocké côté navigateur (les visiteurs verraient l'image
+ * uniquement sur l'appareil de l'admin).
  */
-function ImageUploadField({
+function ImageUrlField({
   value,
   onChange,
   label,
@@ -175,80 +177,64 @@ function ImageUploadField({
   placeholder?: string;
 }) {
   const inputId = useMemo(
-    () => `img-upload-${Math.random().toString(36).slice(2, 9)}`,
+    () => `img-url-${Math.random().toString(36).slice(2, 9)}`,
     []
   );
-  const [uploading, setUploading] = useState(false);
-
-  const handleFile = async (file: File) => {
-    if (uploading) return;
-    if (!file.type.startsWith("image/")) {
-      toast.error("Veuillez choisir un fichier image (JPG, PNG, WebP…).");
-      return;
-    }
-    if (file.size > 2 * 1024 * 1024) {
-      toast.error("Image trop lourde (2 Mo maximum).");
-      return;
-    }
-    setUploading(true);
-    try {
-      const ext = file.name.split(".").pop()?.toLowerCase() ?? "jpg";
-      const path = `uploads/${Date.now()}-${Math.random()
-        .toString(36)
-        .slice(2, 8)}.${ext}`;
-      const storageRef = ref(fbStorage(), path);
-      await uploadBytes(storageRef, file, { contentType: file.type });
-      const url = await getDownloadURL(storageRef);
-      onChange(url);
-      toast.success("Image téléversée vers Firebase Storage.");
-    } catch (error) {
-      toast.error(friendlyFirebaseError(error));
-    } finally {
-      setUploading(false);
-    }
-  };
+  const [previewError, setPreviewError] = useState(false);
+  const url = value.trim();
 
   return (
     <div className="space-y-2">
       <Label htmlFor={inputId}>{label}</Label>
-      <div className="flex gap-2">
-        <Input
-          id={inputId}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder ?? "https://…"}
-          className="h-10 rounded-xl"
-        />
-        <label
-          className={`h-10 shrink-0 inline-flex items-center gap-1.5 rounded-xl border border-border px-3 text-sm font-medium cursor-pointer hover:bg-muted transition-colors ${
-            uploading ? "opacity-60 pointer-events-none" : ""
-          }`}
-        >
-          {uploading ? (
-            <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+      <Input
+        id={inputId}
+        value={value}
+        onChange={(e) => {
+          setPreviewError(false);
+          onChange(e.target.value);
+        }}
+        placeholder={placeholder ?? "https://…"}
+        className="h-10 rounded-xl"
+        inputMode="url"
+      />
+      {url ? (
+        <div className="flex items-center gap-3">
+          {/* Prévisualisation de l'URL publique saisie. */}
+          {previewError ? (
+            <div className="h-20 w-20 rounded-xl border border-destructive/40 bg-destructive/5 flex items-center justify-center shrink-0">
+              <ImageOff
+                className="w-6 h-6 text-destructive/60"
+                aria-hidden="true"
+              />
+            </div>
           ) : (
-            <Download className="w-4 h-4 rotate-180" aria-hidden="true" />
+            <img
+              src={url}
+              alt="Aperçu de l'image"
+              className="h-20 w-20 rounded-xl object-cover border border-border/60"
+              loading="lazy"
+              onError={() => setPreviewError(true)}
+            />
           )}
-          {uploading ? "Envoi…" : "Téléverser"}
-          <input
-            type="file"
-            accept="image/*"
-            className="sr-only"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              e.target.value = "";
-              if (file) void handleFile(file);
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="rounded-full text-destructive hover:text-destructive gap-1.5 shrink-0"
+            onClick={() => {
+              setPreviewError(false);
+              onChange("");
+              toast.success("Image retirée du produit.");
             }}
-          />
-        </label>
-      </div>
-      {value.trim() && (
-        <img
-          src={value.trim()}
-          alt="Aperçu de l'image"
-          className="h-20 w-20 rounded-xl object-cover border border-border/60"
-          loading="lazy"
-        />
+          >
+            <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+            Supprimer l&apos;image
+          </Button>
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          Collez une URL d&apos;image publique (ex : https://exemple.com/photo.jpg).
+        </p>
       )}
     </div>
   );
@@ -1440,8 +1426,8 @@ function ProductsPanel({ refreshKey }: { refreshKey: number }) {
               </Field>
             </div>
 
-            <ImageUploadField
-              label="Image principale * (téléversement Firebase Storage ou URL)"
+            <ImageUrlField
+              label="Image principale * (URL publique)"
               value={form.image}
               onChange={(url) => setForm((prev) => ({ ...prev, image: url }))}
               placeholder="https://… ou /images/products/mon-produit.jpg"
@@ -1894,8 +1880,8 @@ function CategoriesPanel({
                 className="rounded-xl"
               />
             </Field>
-            <ImageUploadField
-              label="Image de la catégorie (téléversement Firebase Storage ou URL)"
+            <ImageUrlField
+              label="Image de la catégorie (URL publique)"
               value={form.image}
               onChange={(url) => setForm((prev) => ({ ...prev, image: url }))}
               placeholder="https://… ou /images/categories/ma-categorie.jpg"

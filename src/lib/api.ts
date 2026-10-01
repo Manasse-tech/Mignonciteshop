@@ -1,9 +1,10 @@
 /**
  * Couche d'accès aux données — Firebase (UNIQUE backend de MignonciteShop).
  *
- * Toutes les lectures/écritures passent directement par Cloud Firestore,
- * Firebase Auth et Firebase Storage, protégées par les Security Rules
- * (firestore.rules / storage.rules). Il n'existe AUCUN autre backend.
+ * Toutes les lectures/écritures passent directement par Cloud Firestore et
+ * Firebase Auth, protégées par les Security Rules (firestore.rules).
+ * Il n'existe AUCUN autre backend. Images = URLs publiques dans Firestore
+ * (aucun Firebase Storage — forfait Spark).
  *
  * L'interface publique est conservée à l'identique (mêmes signatures que la
  * couche précédente) afin de ne pas réécrire les composants UI.

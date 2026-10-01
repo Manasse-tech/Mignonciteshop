@@ -3,34 +3,36 @@
 /**
  * Firebase — UNIQUE backend de MignonciteShop.
  *
- * Architecture finale (aucun autre backend) :
- *   Frontend → Firebase Authentication
+ * Architecture finale (aucun autre backend), compatible forfait SPARK
+ * (gratuit, sans carte bancaire, sans Blaze) :
+ *   Frontend → Firebase Authentication (email/password + Google)
  *            → Cloud Firestore
- *            → Firebase Storage
+ *
+ * Firebase Storage est volontairement ABSENT : le forfait Spark le permet
+ * mais les images produits sont des URLs publiques stockées dans Firestore
+ * (products.image), accessibles à tous les utilisateurs sans Storage.
+ * Aucun Cloud Function, aucun service payant n'est utilisé.
  *
  * La configuration Web ci-dessous est PUBLIQUE par conception (elle identifie
  * le projet Firebase, elle n'est pas un secret) — voir
  * https://firebase.google.com/docs/projects/api-keys
- * Les vraies protections sont les Security Rules (firestore.rules /
- * storage.rules) — jamais côté client.
+ * Les vraies protections sont les Security Rules (firestore.rules) — jamais
+ * côté client.
  *
  * NE JAMAIS placer ici : service account JSON, clé privée Admin SDK,
- * identifiants Cloud Functions (cf. FIREBASE-SETUP.md).
+ * identifiants de facturation (cf. FIREBASE-SETUP.md).
  */
 
 import { initializeApp, getApps, getApp, type FirebaseApp } from "firebase/app";
 import { getAuth, type Auth } from "firebase/auth";
 import { getFirestore, type Firestore } from "firebase/firestore";
-import { getStorage, type FirebaseStorage } from "firebase/storage";
 
 export const firebaseConfig = {
   apiKey: "AIzaSyBU6iyEA3gHKXWPt65iAMSrug1ziqj6di4",
   authDomain: "mignoncite-3528e.firebaseapp.com",
   projectId: "mignoncite-3528e",
-  storageBucket: "mignoncite-3528e.firebasestorage.app",
   messagingSenderId: "710425593752",
   appId: "1:710425593752:web:ccaf1ff45cfa70136d0ded",
-  measurementId: "G-1LSRPQVGH5",
 };
 
 /** Singleton App (évite les ré-initialisations sous HMR Next.js). */
@@ -40,7 +42,6 @@ function getFirebaseApp(): FirebaseApp {
 
 let _auth: Auth | null = null;
 let _db: Firestore | null = null;
-let _storage: FirebaseStorage | null = null;
 
 export function fbAuth(): Auth {
   if (!_auth) _auth = getAuth(getFirebaseApp());
@@ -52,14 +53,9 @@ export function fbDb(): Firestore {
   return _db;
 }
 
-export function fbStorage(): FirebaseStorage {
-  if (!_storage) _storage = getStorage(getFirebaseApp());
-  return _storage;
-}
-
 /**
  * Traduit les codes d'erreur Firebase en messages français compréhensibles
- * pour l'utilisateur (authentification, Firestore, Storage).
+ * pour l'utilisateur (authentification, Firestore).
  */
 export function friendlyFirebaseError(error: unknown): string {
   const code =
@@ -101,7 +97,7 @@ export function friendlyFirebaseError(error: unknown): string {
 
   if (AUTH[code]) return AUTH[code];
 
-  if (code === "permission-denied" || code === "storage/unauthorized") {
+  if (code === "permission-denied") {
     return "Permission refusée par les règles de sécurité Firebase.";
   }
   if (code === "unavailable") {
@@ -109,9 +105,6 @@ export function friendlyFirebaseError(error: unknown): string {
   }
   if (code === "failed-precondition") {
     return "Opération impossible : la base Firestore du projet n'est pas encore créée (voir FIREBASE-SETUP.md).";
-  }
-  if (code.startsWith("storage/")) {
-    return "Transfert de l'image impossible (taille max 2 Mo, format image).";
   }
 
   const message =
