@@ -44,7 +44,7 @@ export function CategoriesPage({
             <p className="text-[#C9A961] text-sm font-semibold tracking-widest uppercase mb-2">
               Nos Univers
             </p>
-            <h1 className="text-4xl font-bold text-foreground">Catégories</h1>
+            <h1 className="text-fluid-h1 font-bold text-foreground">Catégories</h1>
             <p className="text-muted-foreground mt-3 max-w-2xl mx-auto">
               Explorez nos différentes catégories de produits et trouvez
               exactement ce que vous cherchez.
@@ -55,7 +55,7 @@ export function CategoriesPage({
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         {loading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 lg:gap-6">
             {Array.from({ length: 4 }).map((_, i) => (
               <div
                 key={i}
@@ -64,7 +64,7 @@ export function CategoriesPage({
             ))}
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 lg:gap-6">
             {categories.map((category, i) => {
               const stat = stats.get(category.id) ?? {
                 total: category.productCount ?? 0,

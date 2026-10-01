@@ -24,9 +24,9 @@ const prisma = new PrismaClient()
 
 const PROMOS = [
   { code: "BIENVENUE10", label: "-10 % sur votre commande", type: "percent", value: 10, minSubtotal: 0 },
-  { code: "FREESHIP", label: "Livraison offerte", type: "freeship", value: 0, minSubtotal: 25 },
-  { code: "GOLD20", label: "-20 % dès 100 € d'achat", type: "percent", value: 20, minSubtotal: 100 },
-  { code: "REDUCTION5", label: "-5 € sur votre commande", type: "amount", value: 5, minSubtotal: 30 },
+  { code: "FREESHIP", label: "Livraison offerte", type: "freeship", value: 0, minSubtotal: 25000 },
+  { code: "GOLD20", label: "-20 % dès 100 000 FCFA d'achat", type: "percent", value: 20, minSubtotal: 100000 },
+  { code: "REDUCTION5", label: "-5 000 FCFA sur votre commande", type: "amount", value: 5000, minSubtotal: 30000 },
 ]
 
 // ---------------------------------------------------------------------------
@@ -99,8 +99,8 @@ const products = [
       "Une veste légère et élégante, confectionnée dans un tissu technique déperlant. Coupe ajustée, finitions soignées et confort optimal pour la mi-saison. Parfaite pour un look urbain chic en toutes circonstances.",
     details:
       "Tissu déperlant · Doublure respirante · Fermeture éclair YKK · Poches zippées",
-    price: 79.99,
-    oldPrice: 99.99,
+    price: 80000,
+    oldPrice: 100000,
     image: "/images/products/photo-1591047139829-d91aecb6caea.jpg",
     gallery:
       '["/images/products/photo-1591047139829-d91aecb6caea.jpg","/images/products/photo-1445205170230-053b83016050.jpg"]',
@@ -124,7 +124,7 @@ const products = [
     description:
       "Lampe LED au design épuré et moderne. Éclairage d'ambiance tamisé, intensité réglable et finition mate premium. Un objet décoratif qui sublime votre intérieur tout en consommant très peu d'énergie.",
     details: "LED 8W · Intensité réglable · USB-C · Finition mate",
-    price: 34.99,
+    price: 35000,
     oldPrice: null,
     image: "/images/products/photo-1507473885765-e6ed057f782c.jpg",
     gallery:
@@ -150,8 +150,8 @@ const products = [
       "Tapis de yoga professionnel antidérapant, épais et confortable. Surface texturée pour une adhérence maximale même en transpiration, marques d'alignement discrètes et sangle de transport offerte.",
     details:
       "Épaisseur 6mm · Antidérapant TPE · Sans odeur · Sangle incluse",
-    price: 29.99,
-    oldPrice: 39.99,
+    price: 30000,
+    oldPrice: 40000,
     image: "/images/products/photo-1601925260368-ae2f83cf8b7f.jpg",
     gallery:
       '["/images/products/photo-1601925260368-ae2f83cf8b7f.jpg","/images/products/photo-1571902943202-507ec2618e8f.jpg"]',
@@ -176,8 +176,8 @@ const products = [
       "Écouteurs sans fil à réduction de bruit active. Son haute fidélité, autonomie exceptionnelle de 30h avec le boîtier, appairage instantané et résistance à l'eau IPX5 pour accompagner toutes vos activités.",
     details:
       "ANC actif · 30h autonomie · Bluetooth 5.3 · IPX5 · Boîtier de charge",
-    price: 89.99,
-    oldPrice: 129.99,
+    price: 90000,
+    oldPrice: 130000,
     image: "/images/products/photo-1505740420928-5e560c06d30e.jpg",
     gallery:
       '["/images/products/photo-1505740420928-5e560c06d30e.jpg","/images/products/photo-1498049794561-7780e7231661.jpg"]',
@@ -202,8 +202,8 @@ const products = [
       "Montre connectée multi-sport avec écran AMOLED lumineux. Suivi cardiaque continu, GPS intégré, plus de 100 modes sportifs et autonomie de 14 jours. Le compagnon idéal de vos entraînements.",
     details:
       'Écran AMOLED 1.43" · GPS · Cardiomètre · Étanche 5ATM · 14 jours',
-    price: 149.99,
-    oldPrice: 199.99,
+    price: 150000,
+    oldPrice: 200000,
     image: "/images/products/photo-1523275335684-37898b6baf30.jpg",
     gallery:
       '["/images/products/photo-1523275335684-37898b6baf30.jpg"]',
@@ -228,8 +228,8 @@ const products = [
       "Paire d'haltères ajustables de 2 à 24 kg. Système de changement de poids rapide et sûr, revêtement antidérapant et format compact gain de place. Toute une salle de sport dans un seul équipement.",
     details:
       "2-24 kg par haltère · Réglage rapide · Revêtement caoutchouc · Poignée antiglisse",
-    price: 199.99,
-    oldPrice: 249.99,
+    price: 200000,
+    oldPrice: 250000,
     image: "/images/products/photo-1534438327276-14e5300c3a48.jpg",
     gallery:
       '["/images/products/photo-1534438327276-14e5300c3a48.jpg","/images/products/photo-1571902943202-507ec2618e8f.jpg"]',
@@ -253,7 +253,7 @@ const products = [
     description:
       "Coussin décoratif en tissu doux et texturé, pour apporter une touche chaleureuse à votre salon ou chambre. Housse déhoussable et lavable, garnissage moelleux qui retrouve sa forme.",
     details: "45×45 cm · Housse déhoussable · Tissu bouclé · Lavable 30°",
-    price: 19.99,
+    price: 20000,
     oldPrice: null,
     image: "/images/products/photo-1579656381226-5fc0f0100c3b.jpg",
     gallery:
@@ -278,7 +278,7 @@ const products = [
     description:
       'Sac à dos urbain minimaliste avec compartiment rembourré pour ordinateur portable 15". Tissu imperméable, dos ergonomique respirant et poche antivol cachée. L\'accessoire indispensable du quotidien.',
     details: '20L · Compartiment 15" · Imperméable · Poche antivol · USB',
-    price: 49.99,
+    price: 50000,
     oldPrice: null,
     image: "/images/products/photo-1553062407-98eeb64c6a62.jpg",
     gallery:
@@ -303,8 +303,8 @@ const products = [
     description:
       "Enceinte portable au son puissant et équilibré, habillée d'un tissu textile premium. Autonomie de 20 heures, résistance aux éclaboussures IPX6 et appairage stéréo possible entre deux enceintes. Votre bande-son où que vous soyez.",
     details: "20h autonomie · IPX6 · Bluetooth 5.3 · Appairage stéréo · 580 g",
-    price: 59.99,
-    oldPrice: 79.99,
+    price: 60000,
+    oldPrice: 80000,
     image: "/images/products/gen-enceinte.png",
     gallery:
       '["/images/products/gen-enceinte.png","/images/products/photo-1505740420928-5e560c06d30e.jpg"]',
@@ -329,8 +329,8 @@ const products = [
       "Bougie coulée à la main dans un verre ambré, cire de soja naturelle et mèche en bois qui crépite doucement. Une trentaine d'heures de diffusion pour une ambiance chaleureuse et apaisante dès les premières minutes.",
     details:
       "Cire de soja · Mèche en bois · ~30h · Verre ambré réutilisable · Fabriquée en France",
-    price: 24.99,
-    oldPrice: 32.99,
+    price: 25000,
+    oldPrice: 33000,
     image: "/images/products/gen-bougie.png",
     gallery:
       '["/images/products/gen-bougie.png","/images/products/photo-1616486338812-3dadae4b4ace.jpg"]',
@@ -355,8 +355,8 @@ const products = [
       "Sneakers au style intemporel, tige en cuir grainé et semelle caoutchouc confortable. Un design épuré qui accompagne toutes vos tenues, du jean au costume, avec un confort remarquable dès la première marche.",
     details:
       "Cuir grainé · Semelle caoutchouc · Doublure respirante · Unisexe",
-    price: 94.99,
-    oldPrice: 119.99,
+    price: 95000,
+    oldPrice: 120000,
     image: "/images/products/gen-sneakers.png",
     gallery:
       '["/images/products/gen-sneakers.png","/images/products/photo-1441986300917-64674bd600d8.jpg"]',
@@ -380,7 +380,7 @@ const products = [
     description:
       "Lunettes de soleil à la monture métal fine dorée et verres dégradés catégoriel 3. Une silhouette rétro-chic légère (21 g) qui protège vos yeux avec style, étui rigide et chiffon microfibre inclus.",
     details: "Verres cat. 3 UV400 · Monture métal · 21 g · Étui rigide inclus",
-    price: 39.99,
+    price: 40000,
     oldPrice: null,
     image: "/images/products/gen-lunettes.png",
     gallery: '["/images/products/gen-lunettes.png"]',
@@ -405,8 +405,8 @@ const products = [
       "Service à thé en céramique émaillée crème aux finitions dorées : une théière 800 ml et deux tasses élégantes. Un moment de dégustation raffiné à offrir ou s'offrir, livré dans un coffret cadeau soigné.",
     details:
       "Théière 800 ml · 2 tasses · Céramique émaillée · Finitions dorées · Coffret cadeau",
-    price: 44.99,
-    oldPrice: 54.99,
+    price: 45000,
+    oldPrice: 55000,
     image: "/images/products/gen-the.png",
     gallery:
       '["/images/products/gen-the.png","/images/products/photo-1616486338812-3dadae4b4ace.jpg"]',
@@ -431,7 +431,7 @@ const products = [
       "Gourde isotherme en inox double paroi : 24h de froid, 12h de chaud. Finition mate anti-traces, bouchon étanche à double joint et bouche large compatible avec les glaçons. L'alliée zéro déchet de vos journées.",
     details:
       "750 ml · Inox 18/8 · 24h froid / 12h chaud · Sans BPA · Bouchon étanche",
-    price: 27.99,
+    price: 28000,
     oldPrice: null,
     image: "/images/products/gen-gourde.png",
     gallery:
@@ -477,14 +477,15 @@ async function main() {
   }
   console.log(`✅ ${PROMOS.length} codes promo prêts`)
 
-  // Administrateur (upsert par email)
-  const passwordHash = await bcrypt.hash(ADMIN.password, 10)
-  await prisma.user.upsert({
-    where: { email: ADMIN.email },
-    update: { role: "admin", password: passwordHash, name: ADMIN.name },
-    create: { email: ADMIN.email, name: ADMIN.name, password: passwordHash, role: "admin" },
-  })
-  console.log(`✅ Administrateur : ${ADMIN.email}`)
+  // Administrateur — NE PLUS créer automatiquement.
+  // Le compte admin est désormais défini par le propriétaire via le geste
+  // secret (7 taps sur le nom de la boutique dans la page connexion) :
+  // les premiers identifiants saisis sont enregistrés comme compte admin.
+  // (Aucun compte admin n'est créé par le seed — cf. /api/auth/admin-claim.)
+  const adminCount = await prisma.user.count({ where: { role: "admin" } })
+  if (adminCount === 0) {
+    console.log("ℹ️  Aucun administrateur : utilisez le geste secret (7 taps sur le logo) pour définir vos identifiants admin.")
+  }
 
   // Vérification
   const catCount = await prisma.category.count()

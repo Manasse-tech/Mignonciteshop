@@ -5,6 +5,7 @@
  * depuis l'espace admin. Le serveur les relit à chaque commande pour
  * calculer les frais de livraison réellement débités.
  *
+ * Conventions de stockage : nombres en texte décimal, booléens en "1"/"0".
  * Cache mémoire de 30 s : évite une requête DB par appel API tout en
  * garantissant une propagation quasi instantanée après modification.
  */
@@ -17,14 +18,22 @@ export interface StoreSettings {
   shippingPickup: number;
   freeShippingThreshold: number;
   lowStockThreshold: number;
+  // Paiement mobile money — structure honnête : si désactivé, l'API
+  // refuse (503) au lieu de simuler un paiement.
+  paymentMobileMoneyEnabled: boolean;
+  paymentMobileMoneyNumber: string;
+  paymentInstructions: string;
 }
 
 export const DEFAULT_SETTINGS: StoreSettings = {
-  shippingStandard: 4.99,
-  shippingExpress: 9.99,
-  shippingPickup: 2.99,
-  freeShippingThreshold: 50,
+  shippingStandard: 1000,
+  shippingExpress: 2500,
+  shippingPickup: 500,
+  freeShippingThreshold: 25000,
   lowStockThreshold: 5,
+  paymentMobileMoneyEnabled: false,
+  paymentMobileMoneyNumber: "",
+  paymentInstructions: "",
 };
 
 export const SETTING_KEYS = [
@@ -33,6 +42,9 @@ export const SETTING_KEYS = [
   "shippingPickup",
   "freeShippingThreshold",
   "lowStockThreshold",
+  "paymentMobileMoneyEnabled",
+  "paymentMobileMoneyNumber",
+  "paymentInstructions",
 ] as const satisfies readonly (keyof StoreSettings)[];
 
 const CACHE_TTL_MS = 30_000;
@@ -42,6 +54,13 @@ let cache: { data: StoreSettings; at: number } | null = null;
 function toNumber(value: unknown, fallback: number): number {
   const parsed = typeof value === "number" ? value : Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function toBool(value: unknown, fallback: boolean): boolean {
+  if (typeof value === "boolean") return value;
+  if (value === "1" || value === "true") return true;
+  if (value === "0" || value === "false") return false;
+  return fallback;
 }
 
 /** Charge les réglages (base → défauts pour toute clé absente/invalide). */
@@ -56,7 +75,16 @@ export async function getStoreSettings(): Promise<StoreSettings> {
     for (const row of rows) {
       if (!SETTING_KEYS.includes(row.key as keyof StoreSettings)) continue;
       const key = row.key as keyof StoreSettings;
-      settings[key] = toNumber(row.value, DEFAULT_SETTINGS[key]);
+      const fallback = DEFAULT_SETTINGS[key];
+      // Affectation dynamique (union de types par clé) — cast explicite.
+      const target = settings as unknown as Record<string, unknown>;
+      if (typeof fallback === "number") {
+        target[key] = toNumber(row.value, fallback);
+      } else if (typeof fallback === "boolean") {
+        target[key] = toBool(row.value, fallback);
+      } else {
+        target[key] = row.value;
+      }
     }
   } catch {
     // En cas d'indisponibilité DB, on retombe sur les valeurs par défaut
@@ -80,6 +108,11 @@ export interface PublicSettings {
     pickup: number;
   };
   freeShippingThreshold: number;
+  payment: {
+    mobileMoneyEnabled: boolean;
+    mobileMoneyNumber: string;
+    instructions: string;
+  };
 }
 
 export function toPublicSettings(settings: StoreSettings): PublicSettings {
@@ -90,5 +123,10 @@ export function toPublicSettings(settings: StoreSettings): PublicSettings {
       pickup: settings.shippingPickup,
     },
     freeShippingThreshold: settings.freeShippingThreshold,
+    payment: {
+      mobileMoneyEnabled: settings.paymentMobileMoneyEnabled,
+      mobileMoneyNumber: settings.paymentMobileMoneyNumber,
+      instructions: settings.paymentInstructions,
+    },
   };
 }

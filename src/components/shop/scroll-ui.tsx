@@ -40,7 +40,7 @@ export function ScrollUi() {
         type="button"
         aria-label="Retour en haut de page"
         onClick={scrollToTop}
-        className={`fixed right-4 sm:right-6 bottom-6 z-40 w-11 h-11 rounded-full bg-black text-[#C9A961] shadow-lg flex items-center justify-center transition-all duration-300 ${
+        className={`fixed right-4 sm:right-6 bottom-20 lg:bottom-6 z-40 w-11 h-11 rounded-full bg-black text-[#C9A961] shadow-lg flex items-center justify-center transition-all duration-300 ${
           visible
             ? "opacity-100"
             : "opacity-0 pointer-events-none translate-y-2"

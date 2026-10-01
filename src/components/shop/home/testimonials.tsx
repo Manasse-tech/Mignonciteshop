@@ -68,7 +68,7 @@ export function Testimonials() {
           <p className="text-[#C9A961] text-sm font-semibold tracking-widest uppercase mb-2">
             Avis clients
           </p>
-          <h2 className="text-3xl md:text-4xl font-bold text-foreground">
+          <h2 className="text-fluid-h2 font-bold text-foreground">
             Ils nous font confiance
           </h2>
         </div>

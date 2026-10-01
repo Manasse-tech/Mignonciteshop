@@ -137,6 +137,18 @@ export interface AdminReview {
   product: { name: string; image: string };
 }
 
+export interface AdminCategory {
+  id: string;
+  name: string;
+  slug: string;
+  description: string;
+  image: string;
+  order: number;
+  productCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface AdminPromo {
   id: string;
   code: string;
@@ -293,6 +305,11 @@ export interface TrackedOrder {
 export interface StoreSettingsPublic {
   shipping: { standard: number; express: number; pickup: number };
   freeShippingThreshold: number;
+  payment: {
+    mobileMoneyEnabled: boolean;
+    mobileMoneyNumber: string;
+    instructions: string;
+  };
 }
 
 export interface AdminSettings {
@@ -301,6 +318,70 @@ export interface AdminSettings {
   shippingPickup: number;
   freeShippingThreshold: number;
   lowStockThreshold: number;
+  paymentMobileMoneyEnabled: boolean;
+  paymentMobileMoneyNumber: string;
+  paymentInstructions: string;
+}
+
+// ---------------------------------------------------------------------------
+// Fidélité — GET /api/loyalty (session requise)
+// ---------------------------------------------------------------------------
+
+export interface LoyaltyTransactionView {
+  id: string;
+  type: string; // earn | redeem | adjust | expire
+  points: number; // +/-
+  reason: string; // order:MC-XXXXXX | ...
+  orderId: string | null;
+  createdAt: string;
+}
+
+export interface LoyaltyResponse {
+  ok: boolean;
+  account: {
+    points: number;
+    lifetimePoints: number;
+    tier: string; // bronze | silver | gold
+    tierLabel: string;
+    updatedAt: string;
+    createdAt: string;
+  };
+  nextTier: {
+    tier: string;
+    label: string;
+    threshold: number;
+    pointsRemaining: number;
+    progress: number; // 0..100
+  } | null;
+  transactions: LoyaltyTransactionView[];
+  rules: {
+    pointsPerSpent: number;
+    fcfaPer100Points: number;
+    redeemMinPoints: number;
+    redeemMaxRate: number;
+    tiers: { tier: string; label: string; threshold: number; bonusMultiplier: number }[];
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Paiements — structure provider (mobile money)
+// ---------------------------------------------------------------------------
+
+export interface PaymentStatusResponse {
+  ok: boolean;
+  transaction: {
+    id: string;
+    reference: string;
+    orderId: string | null;
+    provider: string;
+    amount: number;
+    currency: string;
+    status: string;
+    providerTxId: string | null;
+    failureReason: string | null;
+    createdAt: string;
+    updatedAt: string;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -373,7 +454,7 @@ export const api = {
       }[];
       shippingMethod: "standard" | "express" | "pickup";
       promoCode?: string | null;
-      paymentMethod?: "card" | "paypal" | "transfer";
+      paymentMethod?: "card" | "paypal" | "transfer" | "mobile_money";
       // Données carte (passerelle démo côté serveur — jamais stockées en clair).
       card?: { number: string; holder: string } | null;
       notes?: string | null;
@@ -426,6 +507,43 @@ export const api = {
       freeShipping?: boolean;
     }> {
       return post("/api/promos/validate", { code, subtotal });
+    },
+  },
+
+  // -------------------------------------------------------------------------
+  // Fidélité — carte et historique du client connecté
+  // -------------------------------------------------------------------------
+  loyalty: {
+    get(): Promise<LoyaltyResponse> {
+      return request<LoyaltyResponse>("/api/loyalty");
+    },
+  },
+
+  // -------------------------------------------------------------------------
+  // Paiements — initiate/status (structure réelle, webhook prestataire)
+  // -------------------------------------------------------------------------
+  payments: {
+    initiate(data: {
+      orderId: string;
+      provider:
+        | "mobile_money_wave"
+        | "mobile_money_orange"
+        | "mobile_money_mtn"
+        | "mobile_money_moov";
+      phoneNumber?: string;
+    }): Promise<{
+      ok: boolean;
+      transactionId: string;
+      reference: string;
+      status: string;
+      instructions: string;
+    }> {
+      return post("/api/payments/initiate", data);
+    },
+    status(id: string): Promise<PaymentStatusResponse> {
+      return request<PaymentStatusResponse>(
+        `/api/payments/${encodeURIComponent(id)}`
+      );
     },
   },
 
@@ -532,6 +650,33 @@ export const api = {
     },
     deleteProduct(id: string): Promise<{ ok: boolean }> {
       return del("/api/admin/products", { id });
+    },
+    categories(): Promise<{ categories: AdminCategory[] }> {
+      return request("/api/admin/categories");
+    },
+    createCategory(data: {
+      name: string;
+      slug?: string;
+      description?: string;
+      image?: string;
+      order?: number;
+    }): Promise<{ ok: boolean }> {
+      return post("/api/admin/categories", data);
+    },
+    updateCategory(
+      id: string,
+      data: Partial<{
+        name: string;
+        slug: string;
+        description: string;
+        image: string;
+        order: number;
+      }>
+    ): Promise<{ ok: boolean }> {
+      return patch("/api/admin/categories", { id, ...data });
+    },
+    deleteCategory(id: string): Promise<{ ok: boolean }> {
+      return del("/api/admin/categories", { id });
     },
     reviews(status?: "pending" | "approved" | "all"): Promise<AdminReview[]> {
       const query = status && status !== "all" ? `?status=${status}` : "";

@@ -9,11 +9,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useShopStore } from "@/lib/store";
+import { formatPrice } from "@/lib/format";
 import type { Product } from "@/lib/types";
 
-/** Fidèle au site original : « 79.99 € » (point décimal). */
+/** Prix affiché en FCFA — source unique : src/lib/format.ts. */
 function priceLabel(price: number): string {
-  return `${price.toFixed(2)} €`;
+  return formatPrice(price);
 }
 
 interface SearchDialogProps {

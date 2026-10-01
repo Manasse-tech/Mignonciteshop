@@ -7,6 +7,8 @@ import { logAudit } from "@/lib/audit"
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
+// FCFA : les montants ("amount") vont jusqu'à 5 000 000 F, les pourcentages
+// restent bornés à 90 % (au-delà, une remise serait absurde).
 const promoCreateSchema = z.object({
   code: z
     .string()
@@ -16,8 +18,8 @@ const promoCreateSchema = z.object({
     .transform((value) => value.toUpperCase()),
   label: z.string().trim().min(2, "Libellé requis").max(120),
   type: z.enum(["percent", "freeship", "amount"]),
-  value: z.number().finite().min(0).max(10000).default(0),
-  minSubtotal: z.number().finite().min(0).max(100000).default(0),
+  value: z.number().finite().min(0).max(5_000_000).default(0),
+  minSubtotal: z.number().finite().min(0).max(10_000_000).default(0),
   maxUses: z.number().int().min(1).max(1000000).nullable().optional(),
   expiresAt: z.string().datetime({ offset: true }).nullable().optional(),
 })
@@ -26,8 +28,8 @@ const promoUpdateSchema = z.object({
   id: z.string().min(1),
   label: z.string().trim().min(2).max(120).optional(),
   type: z.enum(["percent", "freeship", "amount"]).optional(),
-  value: z.number().finite().min(0).max(10000).optional(),
-  minSubtotal: z.number().finite().min(0).max(100000).optional(),
+  value: z.number().finite().min(0).max(5_000_000).optional(),
+  minSubtotal: z.number().finite().min(0).max(10_000_000).optional(),
   maxUses: z.number().int().min(1).max(1000000).nullable().optional(),
   expiresAt: z.string().datetime({ offset: true }).nullable().optional(),
   isActive: z.boolean().optional(),

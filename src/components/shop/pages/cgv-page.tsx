@@ -61,9 +61,9 @@ const SECTIONS: LegalSection[] = [
       "Le Client est tenu de vérifier l'état du colis à la livraison ; toute anomalie (colis endommagé, article manquant) doit être signalée au service client dans les 48 heures suivant la réception.",
     ],
     list: [
-      "Livraison standard : 4.99 € — offerte dès 50 € d'achat, 2 à 5 jours ouvrés ;",
-      "Livraison express : 9.99 € — 24 à 48 heures ouvrées ;",
-      "Livraison en point relais : 2.99 € — 2 à 5 jours ouvrés.",
+      "Livraison standard : 1 000 FCFA — offerte dès 25 000 FCFA d'achat, 2 à 5 jours ouvrés ;",
+      "Livraison express : 2 500 FCFA — 24 à 48 heures ouvrées ;",
+      "Livraison en point relais : 500 FCFA — 2 à 5 jours ouvrés.",
     ],
   },
   {

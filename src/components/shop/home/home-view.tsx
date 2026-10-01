@@ -57,7 +57,11 @@ export function HomeView({
   return (
     <>
       <Hero onNavigate={onNavigate} />
-      <Advantages />
+      <FlashSale
+        products={products}
+        onNavigate={onNavigate}
+        onQuickView={openQuickView}
+      />
       <CategoriesSection
         categories={categories}
         loading={loading}
@@ -69,16 +73,12 @@ export function HomeView({
         onQuickView={openQuickView}
         onNavigate={onNavigate}
       />
-      <FlashSale
-        products={products}
-        onNavigate={onNavigate}
-        onQuickView={openQuickView}
-      />
       <NewArrivals
         products={newArrivals}
         loading={loading}
         onQuickView={openQuickView}
       />
+      <Advantages />
       <Testimonials />
       <NewsletterSection />
 

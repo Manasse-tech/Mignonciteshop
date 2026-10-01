@@ -11,12 +11,12 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { useShopStore } from "@/lib/store";
-import { discountPercent, parseJsonArray } from "@/lib/format";
+import { discountPercent, formatPrice, parseJsonArray } from "@/lib/format";
 import type { Product } from "@/lib/types";
 
-/** Fidèle au site original : « 79.99 € » (point décimal). */
+/** Prix affiché en FCFA — source unique : src/lib/format.ts. */
 function priceLabel(price: number): string {
-  return `${price.toFixed(2)} €`;
+  return formatPrice(price);
 }
 
 interface QuickViewDialogProps {

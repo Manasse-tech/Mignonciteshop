@@ -3,11 +3,14 @@
 import { useEffect, useState } from "react";
 import {
   Download,
+  Gift,
+  History,
   Loader2,
   Lock,
   LogOut,
   Package,
   ShieldCheck,
+  Sparkles,
   Trash2,
   User,
 } from "lucide-react";
@@ -23,7 +26,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { api } from "@/lib/api";
-import type { AccountOrder } from "@/lib/api";
+import type { AccountOrder, LoyaltyResponse } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 import { formatPrice } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -76,9 +79,164 @@ function StatusTimeline({ status }: { status: string }) {
   );
 }
 
+const LOYALTY_TX_LABELS: Record<string, string> = {
+  earn: "Gagné",
+  redeem: "Échangé",
+  adjust: "Ajustement",
+  expire: "Expiré",
+};
+
+/**
+ * Carte de fidélité — solde, palier, progression et historique.
+ * Données réelles du backend (GET /api/loyalty, session requise).
+ */
+function LoyaltyCard({ loyalty }: { loyalty: LoyaltyResponse | null }) {
+  if (!loyalty) return null;
+  const { account, nextTier, transactions, rules } = loyalty;
+
+  return (
+    <section
+      id="fidelite"
+      className="bg-card rounded-2xl border p-6 scroll-mt-28"
+      aria-label="Carte de fidélité"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-4 mb-5">
+        <div>
+          <h2 className="font-semibold text-foreground flex items-center gap-2">
+            <Gift className="w-5 h-5 text-[#C9A961]" aria-hidden="true" />
+            Carte de fidélité
+          </h2>
+          <p className="text-xs text-muted-foreground mt-1">
+            1 point par {rules.pointsPerSpent} F CFA dépensés · 100 points =
+            {" "}
+            {rules.fcfaPer100Points} F CFA de remise (prochainement au
+            checkout).
+          </p>
+        </div>
+        <Badge className="bg-[#C9A961]/15 text-[#a8873f] dark:text-[#C9A961] text-xs gap-1">
+          <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
+          Palier {account.tierLabel}
+        </Badge>
+      </div>
+
+      <div className="grid gap-5 sm:grid-cols-2 sm:items-center">
+        <div>
+          <p className="text-4xl font-bold text-foreground">
+            {account.points.toLocaleString("fr-FR")}
+            <span className="ml-1.5 text-base font-medium text-muted-foreground">
+              points
+            </span>
+          </p>
+          <p className="text-xs text-muted-foreground mt-1">
+            Cumul historique : {account.lifetimePoints.toLocaleString("fr-FR")}{" "}
+            points
+          </p>
+
+          {/* Progression vers le palier suivant */}
+          <div className="mt-4">
+            {nextTier ? (
+              <>
+                <div
+                  className="h-2 rounded-full bg-muted overflow-hidden"
+                  role="progressbar"
+                  aria-valuenow={nextTier.progress}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-label={`Progression vers le palier ${nextTier.label}`}
+                >
+                  <div
+                    className="h-full rounded-full bg-[#C9A961] transition-all"
+                    style={{ width: `${Math.max(3, nextTier.progress)}%` }}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground mt-1.5">
+                  Encore{" "}
+                  <strong className="text-foreground">
+                    {nextTier.pointsRemaining.toLocaleString("fr-FR")}
+                  </strong>{" "}
+                  points cumulés pour le palier {nextTier.label}.
+                </p>
+              </>
+            ) : (
+              <p className="text-xs font-medium text-[#a8873f] dark:text-[#C9A961]">
+                Palier maximum atteint — merci pour votre fidélité !
+              </p>
+            )}
+          </div>
+        </div>
+
+        <div className="rounded-xl border bg-muted/30 p-4 text-xs text-muted-foreground leading-relaxed">
+          <p className="font-semibold text-foreground text-sm mb-1.5">
+            Comment ça marche ?
+          </p>
+          Chaque commande passée avec votre compte créditée automatiquement
+          vos points (aucune action requise). Bonus de palier : ×1 (Bronze),
+          ×1,1 (Argent dès 5 000 pts cumulés), ×1,25 (Or dès 20 000 pts).
+        </div>
+      </div>
+
+      {/* Historique — 20 dernières transactions (serveur) */}
+      <div className="mt-6">
+        <h3 className="text-sm font-medium text-foreground flex items-center gap-1.5 mb-3">
+          <History className="w-4 h-4 text-[#C9A961]" aria-hidden="true" />
+          Dernières transactions
+        </h3>
+        {transactions.length === 0 ? (
+          <p className="text-xs text-muted-foreground">
+            Aucune transaction pour le moment — passez votre première commande
+            pour cumuler des points.
+          </p>
+        ) : (
+          <ul className="space-y-2 max-h-96 overflow-y-auto pr-1 admin-scroll">
+            {transactions.map((tx) => (
+              <li
+                key={tx.id}
+                className="flex items-center gap-3 rounded-xl border px-3.5 py-2.5 text-sm"
+              >
+                <span
+                  className={cn(
+                    "font-semibold shrink-0 w-16 text-right",
+                    tx.points >= 0
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : "text-red-600 dark:text-red-400"
+                  )}
+                >
+                  {tx.points >= 0 ? "+" : ""}
+                  {tx.points}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-foreground truncate">
+                    {LOYALTY_TX_LABELS[tx.type] ?? tx.type}
+                    {tx.reason.startsWith("order:") && (
+                      <span className="text-muted-foreground font-mono text-xs">
+                        {" "}
+                        · {tx.reason.replace("order:", "cmd ")}
+                      </span>
+                    )}
+                  </span>
+                  <span className="block text-xs text-muted-foreground">
+                    {new Date(tx.createdAt).toLocaleDateString("fr-FR", {
+                      day: "2-digit",
+                      month: "short",
+                      year: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export function AccountPage({ onNavigate }: { onNavigate: (page: string) => void }) {
   const { user, ready, hydrate, logout } = useAuthStore();
   const [orders, setOrders] = useState<AccountOrder[] | null>(null);
+  const [loyalty, setLoyalty] = useState<LoyaltyResponse | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -103,6 +261,37 @@ export function AccountPage({ onNavigate }: { onNavigate: (page: string) => void
       cancelled = true;
     };
   }, [user]);
+
+  // Carte de fidélité (backend réel) — silencieux si indisponible.
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    api.loyalty
+      .get()
+      .then((data) => {
+        if (!cancelled) setLoyalty(data);
+      })
+      .catch(() => {
+        if (!cancelled) setLoyalty(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  // Le bouton Gift du header pose ce drapeau avant de naviguer :
+  // on défile alors vers la carte de fidélité.
+  useEffect(() => {
+    if (!ready || !user) return;
+    if (sessionStorage.getItem("mc_scroll_fidelite") !== "1") return;
+    sessionStorage.removeItem("mc_scroll_fidelite");
+    const timer = window.setTimeout(() => {
+      document
+        .getElementById("fidelite")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [ready, user]);
 
   // Non connecté → invitation à se connecter.
   if (ready && !user) {
@@ -183,6 +372,9 @@ export function AccountPage({ onNavigate }: { onNavigate: (page: string) => void
             Déconnexion
           </Button>
         </header>
+
+        {/* Carte de fidélité (points réels crédités à chaque commande) */}
+        <LoyaltyCard loyalty={loyalty} />
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Historique des commandes */}

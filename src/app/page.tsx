@@ -7,8 +7,10 @@ import { useCatalog } from "@/hooks/use-catalog";
 import type { Product } from "@/lib/types";
 import { Header } from "@/components/shop/header";
 import { Footer } from "@/components/shop/footer";
+import { BottomNav } from "@/components/shop/bottom-nav";
 import { CookieConsent } from "@/components/shop/cookie-consent";
 import { ScrollUi } from "@/components/shop/scroll-ui";
+import { RequireAuth } from "@/components/shop/require-auth";
 import { SearchDialog } from "@/components/shop/dialogs/search-dialog";
 import { QuickViewDialog } from "@/components/shop/dialogs/quick-view-dialog";
 import { HomeView } from "@/components/shop/home/home-view";
@@ -178,7 +180,11 @@ function ShopApp() {
       );
       break;
     case "cart":
-      content = <CartPage onNavigate={navigate} />;
+      content = (
+        <RequireAuth label="panier">
+          <CartPage onNavigate={navigate} />
+        </RequireAuth>
+      );
       break;
     case "categories":
       content = (
@@ -231,13 +237,15 @@ function ShopApp() {
       break;
     case "wishlist":
       content = (
-        <WishlistPage
-          products={products}
-          loading={loading}
-          onNavigate={navigate}
-          onOpenProduct={openProduct}
-          onQuickView={setQuickView}
-        />
+        <RequireAuth label="liste de favoris">
+          <WishlistPage
+            products={products}
+            loading={loading}
+            onNavigate={navigate}
+            onOpenProduct={openProduct}
+            onQuickView={setQuickView}
+          />
+        </RequireAuth>
       );
       break;
     case "faq":
@@ -275,11 +283,19 @@ function ShopApp() {
         onNavigate={navigate}
         onSearch={() => setSearchOpen(true)}
       />
-      <main id="contenu" className="pt-20 flex-1 flex flex-col">{content}</main>
-      <Footer
-        onNavigate={navigate}
-        onOpenCookies={() => setCookiesForceOpen(true)}
-      />
+      {/* Header compact mobile (56px) / desktop (80px) — pt aligné */}
+      <main id="contenu" className="pt-14 sm:pt-20 flex-1 flex flex-col">
+        {content}
+      </main>
+      {/* Le padding-bottom du footer laisse la place à la bottom nav mobile
+          sans jamais masquer le contenu (barre noire prolongée sous la nav). */}
+      <div className="pb-16 lg:pb-0">
+        <Footer
+          onNavigate={navigate}
+          onOpenCookies={() => setCookiesForceOpen(true)}
+        />
+      </div>
+      <BottomNav active={headerActive} onNavigate={navigate} />
       <ScrollUi />
       <SearchDialog
         products={products}

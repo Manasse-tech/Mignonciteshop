@@ -64,6 +64,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
 import type {
+  AdminCategory,
   AdminCustomer,
   AdminOrder,
   AdminPromo,
@@ -187,6 +188,7 @@ const TABS = [
   { key: "dashboard", label: "Tableau de bord" },
   { key: "orders", label: "Commandes" },
   { key: "products", label: "Produits" },
+  { key: "categories", label: "Catégories" },
   { key: "reviews", label: "Avis" },
   { key: "promos", label: "Codes promo" },
   { key: "clients", label: "Clients" },
@@ -246,6 +248,9 @@ function AdminDashboard() {
         {tab === "dashboard" && <StatsPanel refreshKey={refreshKey} />}
         {tab === "orders" && <OrdersPanel refreshKey={refreshKey} />}
         {tab === "products" && <ProductsPanel refreshKey={refreshKey} />}
+        {tab === "categories" && (
+          <CategoriesPanel refreshKey={refreshKey} onRefresh={refresh} />
+        )}
         {tab === "reviews" && <ReviewsPanel refreshKey={refreshKey} />}
         {tab === "promos" && <PromosPanel refreshKey={refreshKey} />}
         {tab === "clients" && <CustomersPanel refreshKey={refreshKey} />}
@@ -764,18 +769,26 @@ function ProductsPanel({ refreshKey }: { refreshKey: number }) {
   }, [products, search, categoryFilter, quickFilter]);
 
   const load = useCallback(async () => {
-    try {
-      const [{ products: productRows }, categoryRows] = await Promise.all([
-        api.admin.products(),
-        api.categories.list(),
-      ]);
-      setProducts(productRows);
-      setCategories(categoryRows);
-    } catch {
+    // Chargements INDÉPENDANTS (Promise.allSettled) : un échec de la liste
+    // produits ne laisse plus le Select catégories vide silencieusement
+    // (cause racine du bug « sélection de catégorie impossible »).
+    const [productsResult, categoriesResult] = await Promise.allSettled([
+      api.admin.products(),
+      api.categories.list(),
+    ]);
+    if (productsResult.status === "fulfilled") {
+      setProducts(productsResult.value.products);
+    } else {
       toast.error("Impossible de charger les produits.");
-    } finally {
-      setLoading(false);
     }
+    if (categoriesResult.status === "fulfilled") {
+      setCategories(categoriesResult.value);
+    } else {
+      toast.error(
+        "Impossible de charger les catégories — le formulaire produit sera limité."
+      );
+    }
+    setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -860,7 +873,11 @@ function ProductsPanel({ refreshKey }: { refreshKey: number }) {
 
   const quickPatch = async (
     product: Product,
-    data: Partial<Product>
+    data: Partial<{
+      stock: number;
+      isFeatured: boolean;
+      isActive: boolean;
+    }>
   ) => {
     try {
       const result = await api.admin.updateProduct(product.id, data);
@@ -1151,7 +1168,7 @@ function ProductsPanel({ refreshKey }: { refreshKey: number }) {
             </div>
 
             <div className="grid grid-cols-3 gap-4">
-              <Field label="Prix (€) *">
+              <Field label="Prix (FCFA) *">
                 <Input
                   value={form.price}
                   onChange={(e) => setForm({ ...form, price: e.target.value })}
@@ -1159,7 +1176,7 @@ function ProductsPanel({ refreshKey }: { refreshKey: number }) {
                   className="h-10 rounded-xl"
                 />
               </Field>
-              <Field label="Ancien prix (€)">
+              <Field label="Ancien prix (FCFA)">
                 <Input
                   value={form.oldPrice}
                   onChange={(e) => setForm({ ...form, oldPrice: e.target.value })}
@@ -1295,6 +1312,375 @@ function ProductsPanel({ refreshKey }: { refreshKey: number }) {
               className="rounded-full gap-2"
             >
               <Trash2 className="w-4 h-4" aria-hidden="true" />
+              Supprimer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------------- */
+/* Onglet — Catégories (CRUD complet — corrige « sélection + création »)      */
+/* ------------------------------------------------------------------------- */
+
+interface CategoryFormState {
+  id?: string;
+  name: string;
+  slug: string;
+  description: string;
+  image: string;
+  order: string;
+}
+
+const EMPTY_CATEGORY_FORM: CategoryFormState = {
+  name: "",
+  slug: "",
+  description: "",
+  image: "",
+  order: "0",
+};
+
+/** Miroir client du slugify serveur (accents français → minuscules/tirets). */
+function slugifyClient(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
+
+function CategoriesPanel({
+  refreshKey,
+  onRefresh,
+}: {
+  refreshKey: number;
+  onRefresh?: () => void;
+}) {
+  const [categories, setCategories] = useState<AdminCategory[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [form, setForm] = useState<CategoryFormState>(EMPTY_CATEGORY_FORM);
+  const [slugTouched, setSlugTouched] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<AdminCategory | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    api.admin
+      .categories()
+      .then((data) => setCategories(data.categories))
+      .catch(() => toast.error("Impossible de charger les catégories."))
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load, refreshKey]);
+
+  const openCreate = () => {
+    setForm({
+      ...EMPTY_CATEGORY_FORM,
+      order: String(
+        categories.reduce((max, category) => Math.max(max, category.order), 0) + 1
+      ),
+    });
+    setSlugTouched(false);
+    setDialogOpen(true);
+  };
+
+  const openEdit = (category: AdminCategory) => {
+    setForm({
+      id: category.id,
+      name: category.name,
+      slug: category.slug,
+      description: category.description,
+      image: category.image,
+      order: String(category.order),
+    });
+    setSlugTouched(true); // en édition, le slug n'est plus auto-rempli
+    setDialogOpen(true);
+  };
+
+  const handleNameChange = (name: string) => {
+    setForm((prev) => ({
+      ...prev,
+      name,
+      // En création, le slug suit le nom tant que l'admin ne l'a pas édité.
+      slug: !prev.id && !slugTouched ? slugifyClient(name) : prev.slug,
+    }));
+  };
+
+  const handleSave = async () => {
+    const name = form.name.trim();
+    const slug = form.slug.trim();
+    const order = Math.round(Number(form.order) || 0);
+    if (name.length < 2) {
+      toast.error("Le nom de la catégorie est requis (2 caractères minimum).");
+      return;
+    }
+    if (order < 0) {
+      toast.error("L'ordre doit être un nombre positif (≥ 0).");
+      return;
+    }
+    if (slug && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
+      toast.error("Slug invalide : minuscules, chiffres et tirets uniquement.");
+      return;
+    }
+
+    setSaving(true);
+    const payload = {
+      name,
+      ...(slug ? { slug } : {}),
+      description: form.description.trim(),
+      image: form.image.trim(),
+      order,
+    };
+    try {
+      if (form.id) {
+        await api.admin.updateCategory(form.id, payload);
+        toast.success(`Catégorie « ${name} » mise à jour.`);
+      } else {
+        await api.admin.createCategory(payload);
+        toast.success(`Catégorie « ${name} » créée.`);
+      }
+      setDialogOpen(false);
+      setForm(EMPTY_CATEGORY_FORM);
+      load();
+      onRefresh?.();
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Enregistrement impossible."
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget || deleting) return;
+    setDeleting(true);
+    try {
+      await api.admin.deleteCategory(deleteTarget.id);
+      toast.success(`Catégorie « ${deleteTarget.name} » supprimée.`);
+      setDeleteTarget(null);
+      load();
+      onRefresh?.();
+    } catch (error) {
+      // 409 : produits actifs rattachés → message serveur explicite affiché.
+      toast.error(
+        error instanceof Error ? error.message : "Suppression impossible."
+      );
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  if (loading) return <PanelLoader label="Chargement des catégories…" />;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-muted-foreground">
+          Les catégories structurent la boutique (menu, page Catégories,
+          formulaire produit). Le slug est généré depuis le nom.
+        </p>
+        <Button
+          onClick={openCreate}
+          className="bg-[#C9A961] hover:bg-[#b8994f] text-white rounded-full gap-2"
+        >
+          <Plus className={REFRESH_ICON} aria-hidden="true" />
+          Nouvelle catégorie
+        </Button>
+      </div>
+
+      {categories.length === 0 ? (
+        <PanelError label="Aucune catégorie. Créez la première !" />
+      ) : (
+        <div className="max-h-96 overflow-y-auto pr-1 admin-scroll space-y-3">
+          {categories.map((category) => (
+            <article
+              key={category.id}
+              className="bg-card rounded-2xl border p-4 flex flex-wrap items-center gap-3 sm:gap-4"
+            >
+              <ProductThumb image={category.image} name={category.name} />
+              <div className="min-w-0 flex-1">
+                <p className="font-semibold text-foreground truncate">
+                  {category.name}
+                </p>
+                <p className="text-xs text-muted-foreground truncate">
+                  <span className="font-mono">/{category.slug}</span> · ordre{" "}
+                  {category.order} · {category.productCount} produit
+                  {category.productCount > 1 ? "s" : ""}
+                </p>
+                {category.description && (
+                  <p className="text-xs text-muted-foreground/80 truncate mt-0.5">
+                    {category.description}
+                  </p>
+                )}
+              </div>
+              <div className="flex gap-2 ml-auto">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-9 w-9 rounded-full"
+                  aria-label={`Modifier la catégorie ${category.name}`}
+                  onClick={() => openEdit(category)}
+                >
+                  <Pencil className="w-4 h-4" aria-hidden="true" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className={cn(
+                    "h-9 w-9 rounded-full",
+                    category.productCount > 0
+                      ? "opacity-50"
+                      : "text-destructive hover:text-destructive"
+                  )}
+                  aria-label={`Supprimer la catégorie ${category.name}`}
+                  title={
+                    category.productCount > 0
+                      ? "Déplace ou supprime d'abord les produits actifs"
+                      : "Supprimer"
+                  }
+                  onClick={() => setDeleteTarget(category)}
+                >
+                  <Trash2 className="w-4 h-4" aria-hidden="true" />
+                </Button>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+
+      {/* Dialog création / édition */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto admin-scroll">
+          <DialogHeader>
+            <DialogTitle>
+              {form.id ? "Modifier la catégorie" : "Nouvelle catégorie"}
+            </DialogTitle>
+            <DialogDescription>
+              {form.id
+                ? "Les modifications sont visibles immédiatement en boutique."
+                : "Le slug est pré-rempli depuis le nom — tu peux le personnaliser."}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4">
+            <Field label="Nom *">
+              <Input
+                value={form.name}
+                onChange={(e) => handleNameChange(e.target.value)}
+                placeholder="Ex : Électronique"
+                className="h-10 rounded-xl"
+              />
+            </Field>
+            <Field label="Slug (URL)">
+              <Input
+                value={form.slug}
+                onChange={(e) => {
+                  setSlugTouched(true);
+                  setForm({ ...form, slug: e.target.value });
+                }}
+                placeholder="electronique"
+                className="h-10 rounded-xl font-mono"
+              />
+            </Field>
+            <Field label="Description">
+              <Textarea
+                value={form.description}
+                onChange={(e) =>
+                  setForm({ ...form, description: e.target.value })
+                }
+                rows={2}
+                className="rounded-xl"
+              />
+            </Field>
+            <Field label="URL de l'image">
+              <Input
+                value={form.image}
+                onChange={(e) => setForm({ ...form, image: e.target.value })}
+                placeholder="/images/products/ma-categorie.jpg"
+                className="h-10 rounded-xl"
+              />
+              {form.image.trim() && (
+                <img
+                  src={form.image.trim()}
+                  alt="Aperçu de l'image de la catégorie"
+                  className="mt-2 h-16 w-16 rounded-xl object-cover border border-border/60"
+                  loading="lazy"
+                />
+              )}
+            </Field>
+            <Field label="Ordre d'affichage (≥ 0)">
+              <Input
+                value={form.order}
+                onChange={(e) => setForm({ ...form, order: e.target.value })}
+                inputMode="numeric"
+                className="h-10 rounded-xl"
+              />
+            </Field>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setDialogOpen(false)}
+              className="rounded-full"
+            >
+              Annuler
+            </Button>
+            <Button
+              onClick={handleSave}
+              disabled={saving}
+              className="bg-[#C9A961] hover:bg-[#b8994f] text-white rounded-full gap-2"
+            >
+              {saving && <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />}
+              {form.id ? "Enregistrer" : "Créer la catégorie"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirmation suppression */}
+      <Dialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Supprimer cette catégorie ?</DialogTitle>
+            <DialogDescription>
+              « {deleteTarget?.name} » sera définitivement supprimée. Si des
+              produits y sont encore rattachés, la suppression sera refusée.
+              Cette action est irréversible.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setDeleteTarget(null)}
+              className="rounded-full"
+            >
+              Annuler
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDelete}
+              disabled={deleting}
+              className="rounded-full gap-2"
+            >
+              {deleting ? (
+                <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <Trash2 className="w-4 h-4" aria-hidden="true" />
+              )}
               Supprimer
             </Button>
           </DialogFooter>
@@ -1456,7 +1842,7 @@ function ReviewsPanel({ refreshKey }: { refreshKey: number }) {
 
 const PROMO_TYPE_LABELS: Record<string, string> = {
   percent: "Remise %",
-  amount: "Montant €",
+  amount: "Montant (FCFA)",
   freeship: "Livraison offerte",
 };
 
@@ -1643,7 +2029,7 @@ function PromosPanel({ refreshKey }: { refreshKey: number }) {
               <p className="text-xs text-muted-foreground">
                 {PROMO_TYPE_LABELS[promo.type] ?? promo.type}
                 {promo.type !== "freeship" &&
-                  ` · valeur ${promo.type === "percent" ? `${promo.value} %` : `${promo.value} €`}`}
+                  ` · valeur ${promo.type === "percent" ? `${promo.value} %` : `${promo.value} FCFA`}`}
                 {promo.minSubtotal > 0 &&
                   ` · dès ${formatPrice(promo.minSubtotal)}`}
                 {` · utilisé ${promo.usageCount} fois`}
@@ -1731,12 +2117,12 @@ function PromosPanel({ refreshKey }: { refreshKey: number }) {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="percent">Remise %</SelectItem>
-                    <SelectItem value="amount">Montant €</SelectItem>
+                    <SelectItem value="amount">Montant (FCFA)</SelectItem>
                     <SelectItem value="freeship">Livraison offerte</SelectItem>
                   </SelectContent>
                 </Select>
               </Field>
-              <Field label={form.type === "percent" ? "Valeur (%)" : "Valeur (€)"}>
+              <Field label={form.type === "percent" ? "Valeur (%)" : "Valeur (FCFA)"}>
                 <Input
                   value={form.type === "freeship" ? "0" : form.value}
                   onChange={(e) => setForm({ ...form, value: e.target.value })}
@@ -1745,7 +2131,7 @@ function PromosPanel({ refreshKey }: { refreshKey: number }) {
                   className="h-10 rounded-xl"
                 />
               </Field>
-              <Field label="Minimum d'achat (€)">
+              <Field label="Minimum d'achat (FCFA)">
                 <Input
                   value={form.minSubtotal}
                   onChange={(e) => setForm({ ...form, minSubtotal: e.target.value })}
@@ -2818,25 +3204,25 @@ const SETTINGS_FIELDS: {
   {
     key: "shippingStandard",
     label: "Livraison standard",
-    suffix: "€",
+    suffix: "F",
     hint: "Facturée si le sous-total est sous le seuil de gratuité.",
   },
   {
     key: "shippingExpress",
     label: "Livraison express (24-48 h)",
-    suffix: "€",
+    suffix: "F",
     hint: "Toujours payante, quelle que soit la commande.",
   },
   {
     key: "shippingPickup",
     label: "Retrait en point relais",
-    suffix: "€",
+    suffix: "F",
     hint: "Toujours payant, quelle que soit la commande.",
   },
   {
     key: "freeShippingThreshold",
     label: "Seuil livraison offerte",
-    suffix: "€",
+    suffix: "F",
     hint: "La livraison standard est offerte dès ce montant d'achat.",
   },
   {
@@ -2850,6 +3236,7 @@ const SETTINGS_FIELDS: {
 function SettingsPanel({ refreshKey }: { refreshKey: number }) {
   const [settings, setSettings] = useState<AdminSettings | null>(null);
   const [form, setForm] = useState<Record<string, string>>({});
+  const [mmEnabled, setMmEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -2860,12 +3247,15 @@ function SettingsPanel({ refreshKey }: { refreshKey: number }) {
       .then((data) => {
         if (cancelled) return;
         setSettings(data);
+        setMmEnabled(data.paymentMobileMoneyEnabled);
         setForm({
           shippingStandard: String(data.shippingStandard),
           shippingExpress: String(data.shippingExpress),
           shippingPickup: String(data.shippingPickup),
           freeShippingThreshold: String(data.freeShippingThreshold),
           lowStockThreshold: String(data.lowStockThreshold),
+          paymentMobileMoneyNumber: data.paymentMobileMoneyNumber,
+          paymentInstructions: data.paymentInstructions,
         });
       })
       .catch(() => {
@@ -2880,20 +3270,29 @@ function SettingsPanel({ refreshKey }: { refreshKey: number }) {
   }, [refreshKey]);
 
   const handleSave = async () => {
-    const parsed: Record<string, number> = {};
+    const numeric: Record<string, number> = {};
     for (const field of SETTINGS_FIELDS) {
       const value = Number((form[field.key] ?? "").replace(",", "."));
       if (!Number.isFinite(value) || value < 0) {
         toast.error(`Valeur invalide pour « ${field.label} ».`);
         return;
       }
-      parsed[field.key] =
+      numeric[field.key] =
         field.key === "lowStockThreshold" ? Math.round(value) : value;
     }
+    // Paiement mobile money (structure honnête : pas de simulation).
+    const payload: Partial<AdminSettings> = {
+      ...numeric,
+      paymentMobileMoneyEnabled: mmEnabled,
+      paymentMobileMoneyNumber: (form.paymentMobileMoneyNumber ?? "").trim(),
+      paymentInstructions: (form.paymentInstructions ?? "").trim(),
+    };
+
     setSaving(true);
     try {
-      const result = await api.admin.updateSettings(parsed);
+      const result = await api.admin.updateSettings(payload);
       setSettings(result.settings);
+      setMmEnabled(result.settings.paymentMobileMoneyEnabled);
       toast.success(
         "Réglages enregistrés — appliqués immédiatement côté serveur."
       );
@@ -2938,6 +3337,67 @@ function SettingsPanel({ refreshKey }: { refreshKey: number }) {
             <p className="text-xs text-muted-foreground mt-1">{field.hint}</p>
           </Field>
         ))}
+      </section>
+
+      {/* Paiement mobile money — structure réelle, pas de simulation. */}
+      <section className="bg-card rounded-2xl border p-6 space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <div className="min-w-0">
+            <h2 className="font-semibold text-foreground flex items-center gap-2">
+              <CreditCard className="w-5 h-5 text-[#C9A961]" aria-hidden="true" />
+              Paiement mobile money
+            </h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              Désactivé, le checkout affiche un message honnête et l&apos;API de
+              paiement refuse (503) — aucune simulation de débit.
+            </p>
+          </div>
+          <label className="flex items-center gap-2 text-sm cursor-pointer shrink-0">
+            <Switch
+              checked={mmEnabled}
+              onCheckedChange={setMmEnabled}
+              aria-label="Activer le paiement mobile money"
+            />
+            {mmEnabled ? "Actif" : "Inactif"}
+          </label>
+        </div>
+
+        <div className="grid sm:grid-cols-2 gap-4">
+          <Field label="Numéro marchand (ex : +225 07 00 00 00 00)">
+            <Input
+              value={form.paymentMobileMoneyNumber ?? ""}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  paymentMobileMoneyNumber: e.target.value,
+                }))
+              }
+              inputMode="tel"
+              placeholder="+225 07 00 00 00 00"
+              className="h-10 rounded-xl"
+              aria-label="Numéro marchand mobile money"
+            />
+          </Field>
+          <Field label="Instructions clients (affichées au paiement)">
+            <Textarea
+              value={form.paymentInstructions ?? ""}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  paymentInstructions: e.target.value,
+                }))
+              }
+              rows={3}
+              placeholder="Réglez via Wave au numéro ci-dessus puis indiquez la référence commande."
+              className="rounded-xl"
+            />
+          </Field>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          L&apos;encaissement automatique nécessite un prestataire réel : les
+          transactions sont créées en attente puis confirmées uniquement par
+          son webhook signé (PAYMENT_WEBHOOK_SECRET).
+        </p>
       </section>
 
       <div className="flex justify-end">

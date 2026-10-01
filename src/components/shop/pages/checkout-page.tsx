@@ -74,10 +74,11 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
+import { formatPrice } from "@/lib/format";
 
-/** Fidèle au site original : « 79.99 € » (point décimal). */
+/** Prix affiché en FCFA — source unique : src/lib/format.ts. */
 function priceLabel(price: number): string {
-  return `${price.toFixed(2)} €`;
+  return formatPrice(price);
 }
 
 function round2(value: number): number {
@@ -244,7 +245,9 @@ function CheckoutTunnel({ onComplete, onNavigate }: CheckoutTunnelProps) {
   const [step, setStep] = useState(1);
   const [info, setInfo] = useState<CheckoutInfoValues | null>(null);
   const [shipping, setShipping] = useState<ShippingMethod>("standard");
-  const [payMethod, setPayMethod] = useState<"card" | "paypal">("card");
+  const [payMethod, setPayMethod] = useState<
+    "card" | "mobile_money" | "paypal"
+  >("card");
   const [cardNumber, setCardNumber] = useState("");
   const [cardExpiry, setCardExpiry] = useState("");
   const [cardCvc, setCardCvc] = useState("");
@@ -335,20 +338,23 @@ function CheckoutTunnel({ onComplete, onNavigate }: CheckoutTunnelProps) {
       return;
     }
 
-    // Vérification légère du format des champs de carte (mode démo).
+    // Vérification légère du format des champs de carte (passerelle démo)
+    // — UNIQUEMENT pour le paiement carte.
     const errors: Record<string, string> = {};
     const digits = cardNumber.replace(/\s/g, "");
-    if (!/^\d{16}$/.test(digits)) {
-      errors.number = "Le numéro de carte doit contenir 16 chiffres.";
-    }
-    if (!/^(0[1-9]|1[0-2])\/\d{2}$/.test(cardExpiry)) {
-      errors.expiry = "Date d'expiration invalide (format MM/AA).";
-    }
-    if (!/^\d{3}$/.test(cardCvc)) {
-      errors.cvc = "Le code de sécurité doit contenir 3 chiffres.";
-    }
-    if (cardHolder.trim().length < 2) {
-      errors.holder = "Veuillez saisir le nom du titulaire.";
+    if (payMethod === "card") {
+      if (!/^\d{16}$/.test(digits)) {
+        errors.number = "Le numéro de carte doit contenir 16 chiffres.";
+      }
+      if (!/^(0[1-9]|1[0-2])\/\d{2}$/.test(cardExpiry)) {
+        errors.expiry = "Date d'expiration invalide (format MM/AA).";
+      }
+      if (!/^\d{3}$/.test(cardCvc)) {
+        errors.cvc = "Le code de sécurité doit contenir 3 chiffres.";
+      }
+      if (cardHolder.trim().length < 2) {
+        errors.holder = "Veuillez saisir le nom du titulaire.";
+      }
     }
     if (Object.keys(errors).length > 0) {
       setCardErrors(errors);
@@ -357,11 +363,11 @@ function CheckoutTunnel({ onComplete, onNavigate }: CheckoutTunnelProps) {
     setCardErrors({});
     setProcessing(true);
 
-    // Paiement simulé : la commande est ENREGISTRÉE côté serveur
-    // (POST /api/orders — recalcul prix/stock/promo/livraison en base),
-    // puis snapshot de confirmation + clearCart() + setPromo(null)
-    // exécutés exactement une fois (garde paidRef).
-    window.setTimeout(() => {
+    // La commande est ENREGISTRÉE côté serveur (POST /api/orders —
+    // recalcul prix/stock/promo/livraison en base), puis snapshot de
+    // confirmation + clearCart() + setPromo(null) exécutés exactement
+    // une fois (garde paidRef).
+    const submitOrder = (): void => {
       if (paidRef.current) return;
       const address: CheckoutAddress = {
         line1: info.line1,
@@ -370,6 +376,7 @@ function CheckoutTunnel({ onComplete, onNavigate }: CheckoutTunnelProps) {
         city: info.city,
         country: info.country,
       };
+      const isMobileMoney = payMethod === "mobile_money";
       api.orders
         .create({
           email: info.email,
@@ -383,10 +390,15 @@ function CheckoutTunnel({ onComplete, onNavigate }: CheckoutTunnelProps) {
           })),
           shippingMethod: shipping,
           promoCode: promo?.code ?? null,
-          paymentMethod: "card",
-          // Autorisation bancaire côté serveur (passerelle démo).
+          // mobile_money → commande créée NON PAYÉE : le règlement se fait
+          // via le numéro marchand de la boutique, la référence sert de
+          // justificatif (aucune simulation de débit).
+          paymentMethod: isMobileMoney ? "mobile_money" : "card",
+          // Autorisation bancaire côté serveur (passerelle carte de test).
           // Seuls les 4 derniers chiffres sont conservés sur la commande.
-          card: { number: digits, holder: cardHolder.trim() },
+          card: isMobileMoney
+            ? null
+            : { number: digits, holder: cardHolder.trim() },
           address,
         })
         .then((result) => {
@@ -406,6 +418,7 @@ function CheckoutTunnel({ onComplete, onNavigate }: CheckoutTunnelProps) {
             shippingMethod: shipping,
             address,
             createdAt: new Date().toISOString(),
+            paymentMethod: isMobileMoney ? "mobile_money" : "card",
           };
           trackEvent("purchase", {
             reference: snapshot.reference,
@@ -426,7 +439,15 @@ function CheckoutTunnel({ onComplete, onNavigate }: CheckoutTunnelProps) {
               : "Le paiement n'a pas pu être finalisé. Réessayez.";
           toast.error(message);
         });
-    }, 1200);
+    };
+
+    if (payMethod === "card") {
+      // Petit délai d'autorisation (passerelle de test).
+      window.setTimeout(submitOrder, 1200);
+    } else {
+      // Mobile money : aucune simulation de débit → commande immédiate.
+      submitOrder();
+    }
   }
 
   return (
@@ -728,7 +749,7 @@ function CheckoutTunnel({ onComplete, onNavigate }: CheckoutTunnelProps) {
                             </span>
                             {option.id === "standard" && (
                               <span className="block text-xs text-muted-foreground/80 mt-0.5">
-                                Offerte dès {storeSettings.freeShippingThreshold} € d&apos;achat
+                                Offerte dès {formatPrice(storeSettings.freeShippingThreshold)} d&apos;achat
                               </span>
                             )}
                           </span>
@@ -777,20 +798,24 @@ function CheckoutTunnel({ onComplete, onNavigate }: CheckoutTunnelProps) {
                     Paiement
                   </h2>
                   <p className="text-sm text-muted-foreground mt-1 mb-4">
-                    Vos données bancaires sont simulées et ne quittent jamais
-                    votre navigateur.
+                    Aucune donnée bancaire réelle n&apos;est conservée : la
+                    passerelle de test ne garde que les 4 derniers chiffres.
                   </p>
                   <div className="flex items-start gap-2.5 rounded-xl border border-[#C9A961]/30 bg-[#C9A961]/10 px-4 py-3 text-sm text-foreground/80">
                     <Info className="w-4 h-4 text-[#C9A961] mt-0.5 shrink-0" aria-hidden="true" />
                     <span>
-                      Mode démo — aucun débit réel, le paiement Stripe arrivera
-                      avec le backend.
+                      Carte = passerelle de test : la commande est enregistrée
+                      puis marquée « payée » automatiquement (validation par la
+                      boutique, aucun débit réel). Le prestataire réel (Stripe)
+                      sera branché avec ses clés.
                     </span>
                   </div>
 
                   <RadioGroup
                     value={payMethod}
-                    onValueChange={(value) => setPayMethod(value as "card" | "paypal")}
+                    onValueChange={(value) =>
+                      setPayMethod(value as "card" | "mobile_money" | "paypal")
+                    }
                     aria-label="Moyen de paiement"
                     className="mt-6 gap-4 sm:grid sm:grid-cols-2"
                   >
@@ -816,13 +841,38 @@ function CheckoutTunnel({ onComplete, onNavigate }: CheckoutTunnelProps) {
                         </span>
                       </span>
                     </label>
+                    <label
+                      htmlFor="payment-mobile-money"
+                      className={cn(
+                        "flex items-center gap-4 rounded-2xl border p-4 sm:p-5 cursor-pointer transition-all",
+                        payMethod === "mobile_money"
+                          ? "border-[#C9A961] ring-2 ring-[#C9A961]/25 bg-[#C9A961]/5"
+                          : "border-border hover:border-[#C9A961]/50"
+                      )}
+                    >
+                      <RadioGroupItem
+                        value="mobile_money"
+                        id="payment-mobile-money"
+                      />
+                      <span className="w-10 h-10 rounded-full bg-[#C9A961]/10 flex items-center justify-center shrink-0">
+                        <Wallet className="w-5 h-5 text-[#C9A961]" aria-hidden="true" />
+                      </span>
+                      <span className="flex-1 min-w-0">
+                        <span className="block font-semibold text-foreground">
+                          Mobile Money
+                        </span>
+                        <span className="block text-xs text-muted-foreground">
+                          Wave, Orange Money, MTN, Moov
+                        </span>
+                      </span>
+                    </label>
                     <div
                       aria-disabled="true"
                       className="flex items-center gap-4 rounded-2xl border border-border p-4 sm:p-5 opacity-60 cursor-not-allowed"
                     >
                       <RadioGroupItem value="paypal" disabled aria-label="PayPal" />
                       <span className="w-10 h-10 rounded-full bg-muted flex items-center justify-center shrink-0">
-                        <Wallet className="w-5 h-5 text-muted-foreground" aria-hidden="true" />
+                        <Store className="w-5 h-5 text-muted-foreground" aria-hidden="true" />
                       </span>
                       <span className="flex-1 min-w-0">
                         <span className="block font-semibold text-foreground">PayPal</span>
@@ -832,6 +882,39 @@ function CheckoutTunnel({ onComplete, onNavigate }: CheckoutTunnelProps) {
                       </span>
                     </div>
                   </RadioGroup>
+
+                  {/* Mobile money : pas de simulation — le règlement se fait
+                      via le numéro marchand, la référence commande sert de
+                      justificatif. L'activation réelle se fait côté admin. */}
+                  {payMethod === "mobile_money" && (
+                    <div className="mt-6 grid gap-3">
+                      <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-foreground/90">
+                        <Info className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" aria-hidden="true" />
+                        <span>
+                          Paiement mobile money — configuration en cours chez le
+                          prestataire. Votre commande sera enregistrée en
+                          attente de paiement.
+                          {storeSettings.payment.mobileMoneyEnabled &&
+                            storeSettings.payment.mobileMoneyNumber && (
+                              <>
+                                {" "}Réglez via{" "}
+                                <strong>
+                                  {storeSettings.payment.mobileMoneyNumber}
+                                </strong>{" "}
+                                puis indiquez la référence commande.
+                              </>
+                            )}
+                          {!storeSettings.payment.mobileMoneyEnabled &&
+                            " La boutique vous indiquera le règlement (numéro marchand) après validation."}
+                        </span>
+                      </div>
+                      {storeSettings.payment.instructions && (
+                        <p className="text-xs text-muted-foreground px-1 whitespace-pre-line">
+                          {storeSettings.payment.instructions}
+                        </p>
+                      )}
+                    </div>
+                  )}
 
                   {payMethod === "card" && (
                     <div className="mt-6 grid gap-5">
@@ -1008,7 +1091,8 @@ function CheckoutTunnel({ onComplete, onNavigate }: CheckoutTunnelProps) {
                   </div>
                   <p className="mt-4 flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
                     <ShieldCheck className="w-3.5 h-3.5 text-[#C9A961]" aria-hidden="true" />
-                    Transaction chiffrée de bout en bout — démonstration sans débit réel.
+                    Commande réelle et enregistrée — la passerelle de paiement
+                    réelle sera branchée avec les clés du prestataire.
                   </p>
                 </div>
               )}
@@ -1170,7 +1254,7 @@ function SummarySidebar({
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Remise ({promo.code})</span>
               <span className="font-medium text-green-600 dark:text-green-400">
-                -{discount.toFixed(2)} €
+                -{formatPrice(discount)}
               </span>
             </div>
           )}
@@ -1187,7 +1271,7 @@ function SummarySidebar({
             )}
           </div>
           <p className="text-xs text-muted-foreground/80">
-            Offerte dès {freeShippingThreshold} € d&apos;achat.
+            Offerte dès {formatPrice(freeShippingThreshold)} d&apos;achat.
           </p>
           <div className="border-t border-border pt-3 flex items-center justify-between">
             <span className="font-semibold text-foreground">
@@ -1400,11 +1484,24 @@ function ConfirmationView({ order, onNavigate }: ConfirmationViewProps) {
               <div className="grid grid-cols-[9rem_1fr] sm:grid-cols-[10rem_1fr] gap-x-3 items-start">
                 <dt className="flex items-center gap-1.5 text-muted-foreground">
                   <CreditCard className="w-4 h-4 text-[#C9A961] shrink-0" aria-hidden="true" />
-                  Total payé
+                  {order.paymentMethod === "mobile_money"
+                    ? "Total à régler"
+                    : "Total payé"}
                 </dt>
                 <dd className="font-bold text-[#C9A961]">{priceLabel(order.total)}</dd>
               </div>
             </dl>
+            {order.paymentMethod === "mobile_money" && (
+              <p className="mt-4 flex items-start gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-xs text-foreground/90">
+                <Info className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" aria-hidden="true" />
+                <span>
+                  Règlement par Mobile Money : conservez la référence{" "}
+                  <strong className="font-mono">{order.reference}</strong> — la
+                  boutique vous transmet le numéro marchand et confirme la
+                  réception de votre paiement.
+                </span>
+              </p>
+            )}
           </div>
 
           <p className="text-sm text-muted-foreground mt-5 max-w-xl">

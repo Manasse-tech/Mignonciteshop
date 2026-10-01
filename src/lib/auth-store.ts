@@ -37,7 +37,12 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   hydrate: async () => {
     try {
-      const res = await fetch("/api/auth/session");
+      // AbortController : une session qui pend (réseau/HMR) ne doit jamais
+      // bloquer l'interface indéfiniment — au pire on considère déconnecté.
+      const ctrl = new AbortController();
+      const timeout = setTimeout(() => ctrl.abort(), 8000);
+      const res = await fetch("/api/auth/session", { signal: ctrl.signal });
+      clearTimeout(timeout);
       const data = (await res.json()) as { user: AuthUser | null };
       set({ user: data.user ?? null, ready: true });
     } catch {

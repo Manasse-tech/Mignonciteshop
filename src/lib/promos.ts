@@ -24,14 +24,14 @@ export const PROMO_CODES: PromoDefinition[] = [
   },
   {
     code: "GOLD20",
-    label: "-20 % dès 100 € d'achat",
+    label: "-20 % dès 100 000 FCFA d'achat",
     type: "percent",
     value: 20,
     minSubtotal: 100,
   },
   {
     code: "REDUCTION5",
-    label: "-5 € sur votre commande",
+    label: "-5 000 FCFA sur votre commande",
     type: "amount",
     value: 5,
     minSubtotal: 30,
@@ -136,7 +136,7 @@ export function validatePromo(rawCode: string, subtotal: number): PromoValidatio
   if (subtotal < promo.minSubtotal) {
     return {
       ok: false,
-      error: `Ce code est valable dès ${promo.minSubtotal.toFixed(2)} € d'achat.`,
+      error: `Ce code est valable dès ${Math.round(promo.minSubtotal).toLocaleString('fr-FR')} FCFA d'achat.`,
     };
   }
   return { ok: true, promo };

@@ -32,16 +32,16 @@ import {
 import { Slider } from "@/components/ui/slider";
 import { ProductCard } from "@/components/shop/product-card";
 import { useShopStore } from "@/lib/store";
-import { discountPercent } from "@/lib/format";
+import { discountPercent, formatPrice } from "@/lib/format";
 import type { Category, Product } from "@/lib/types";
 
-/** Fidèle au site original : « 79.99 € » (point décimal). */
+/** Prix affiché en FCFA — source unique : src/lib/format.ts. */
 function priceLabel(price: number): string {
-  return `${price.toFixed(2)} €`;
+  return formatPrice(price);
 }
 
 const PER_PAGE = 8;
-const MAX_PRICE = 1000;
+const MAX_PRICE = 100000;
 
 type SortKey = "recent" | "price-asc" | "price-desc" | "rating" | "sold";
 
@@ -232,7 +232,7 @@ function ShopContent({
       <div className="bg-card border-b border-border">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
           <div className="text-center">
-            <h1 className="text-4xl font-bold text-foreground">
+            <h1 className="text-fluid-h1 font-bold text-foreground">
               Notre Boutique
             </h1>
             <p className="text-muted-foreground mt-2">
@@ -364,7 +364,7 @@ function ShopContent({
 
             {loading ? (
               shopView === "grid" ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 xl:grid-cols-4 xl:gap-6">
                   {Array.from({ length: PER_PAGE }).map((_, i) => (
                     <CardSkeleton key={i} />
                   ))}
@@ -401,7 +401,7 @@ function ShopContent({
                 </button>
               </div>
             ) : shopView === "grid" ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 xl:grid-cols-4 xl:gap-6">
                 {pageItems.map((product) => (
                   <ProductCard
                     key={product.id}
@@ -540,7 +540,7 @@ function SidebarFilters({
         <Slider
           min={0}
           max={MAX_PRICE}
-          step={1}
+          step={500}
           value={priceRange}
           onValueChange={(value) =>
             onPriceRange([value[0] ?? 0, value[1] ?? MAX_PRICE])
@@ -549,8 +549,8 @@ function SidebarFilters({
           className="mb-3"
         />
         <div className="flex justify-between text-sm text-muted-foreground">
-          <span>{priceRange[0]} €</span>
-          <span>{priceRange[1]} €</span>
+          <span>{formatPrice(priceRange[0])}</span>
+          <span>{formatPrice(priceRange[1])}</span>
         </div>
       </div>
 

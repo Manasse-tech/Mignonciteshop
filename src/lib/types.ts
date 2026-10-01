@@ -139,4 +139,6 @@ export interface OrderSnapshot {
   shippingMethod: ShippingMethod;
   address: CheckoutAddress;
   createdAt: string;
+  /** Méthode choisie au checkout (card = passerelle démo, mobile_money = règlement externe). */
+  paymentMethod?: "card" | "paypal" | "transfer" | "mobile_money";
 }

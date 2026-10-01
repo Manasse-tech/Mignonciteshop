@@ -3,7 +3,7 @@
 import { Headphones, RotateCcw, ShieldCheck, Truck } from "lucide-react";
 
 const ADVANTAGES = [
-  { icon: Truck, title: "Livraison Gratuite", subtitle: "À partir de 50€" },
+  { icon: Truck, title: "Livraison Gratuite", subtitle: "À partir de 25 000 FCFA" },
   { icon: ShieldCheck, title: "Paiement Sécurisé", subtitle: "100% sécurisé" },
   { icon: RotateCcw, title: "Retour Facile", subtitle: "30 jours" },
   { icon: Headphones, title: "Support 24/7", subtitle: "Assistance dédiée" },

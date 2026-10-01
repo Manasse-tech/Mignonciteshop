@@ -119,7 +119,7 @@ export function PromotionsPage({
       <div className="bg-card border-b border-border">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
           <div className="text-center">
-            <h1 className="text-4xl font-bold text-foreground">Promotions</h1>
+            <h1 className="text-fluid-h1 font-bold text-foreground">Promotions</h1>
             <p className="text-muted-foreground mt-2">
               Profitez de nos meilleures offres et réductions sur une sélection
               de produits.
@@ -155,7 +155,7 @@ export function PromotionsPage({
         </p>
 
         {loading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 lg:gap-6 xl:grid-cols-5">
             {Array.from({ length: 4 }).map((_, i) => (
               <div
                 key={i}
@@ -187,7 +187,7 @@ export function PromotionsPage({
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 lg:gap-6 xl:grid-cols-5">
             {promoProducts.map((product) => (
               <ProductCard
                 key={product.id}

@@ -37,9 +37,9 @@ interface PromoDef {
 
 const PROMO_DEFS: Record<string, PromoDef> = {
   BIENVENUE10: { type: "percent", value: 10, minSubtotal: 0 },
-  FREESHIP: { type: "freeship", value: 0, minSubtotal: 25 },
-  GOLD20: { type: "percent", value: 20, minSubtotal: 100 },
-  REDUCTION5: { type: "amount", value: 5, minSubtotal: 30 },
+  FREESHIP: { type: "freeship", value: 0, minSubtotal: 25000 },
+  GOLD20: { type: "percent", value: 20, minSubtotal: 100000 },
+  REDUCTION5: { type: "amount", value: 5000, minSubtotal: 30000 },
 }
 
 function computeShipping(
@@ -521,10 +521,10 @@ const NEWSLETTER_EMAILS = [
 const EXTRA_PROMOS = [
   {
     code: "ETE25",
-    label: "-25 % dès 40 € d'achat",
+    label: "-25 % dès 40 000 FCFA d'achat",
     type: "percent",
     value: 25,
-    minSubtotal: 40,
+    minSubtotal: 40000,
     maxUses: 200,
     usageCount: 2,
     isActive: true,
@@ -543,10 +543,10 @@ const EXTRA_PROMOS = [
   },
   {
     code: "FLASH50",
-    label: "-50 € dès 200 € — offre flash 72 h",
+    label: "-50 000 FCFA dès 200 000 FCFA — offre flash 72 h",
     type: "amount",
-    value: 50,
-    minSubtotal: 200,
+    value: 50000,
+    minSubtotal: 200000,
     maxUses: null,
     usageCount: 0,
     isActive: true,
@@ -565,10 +565,10 @@ const EXTRA_PROMOS = [
   },
   {
     code: "BLACKFRIDAY30",
-    label: "-30 % dès 80 € (Black Friday passé)",
+    label: "-30 % dès 80 000 FCFA (Black Friday passé)",
     type: "percent",
     value: 30,
-    minSubtotal: 80,
+    minSubtotal: 80000,
     maxUses: null,
     usageCount: 41,
     isActive: true,
@@ -813,9 +813,9 @@ async function main() {
   // 9. Codes promo : 4 officiels + 5 codes de démonstration (cas limites).
   const officialPromos = [
     { code: "BIENVENUE10", label: "-10 % sur votre commande", type: "percent", value: 10, minSubtotal: 0, maxUses: null, usageCount: 12, isActive: true, expiresAt: null },
-    { code: "FREESHIP", label: "Livraison offerte", type: "freeship", value: 0, minSubtotal: 25, maxUses: null, usageCount: 5, isActive: true, expiresAt: null },
-    { code: "GOLD20", label: "-20 % dès 100 € d'achat", type: "percent", value: 20, minSubtotal: 100, maxUses: null, usageCount: 3, isActive: true, expiresAt: null },
-    { code: "REDUCTION5", label: "-5 € sur votre commande", type: "amount", value: 5, minSubtotal: 30, maxUses: null, usageCount: 4, isActive: true, expiresAt: null },
+    { code: "FREESHIP", label: "Livraison offerte", type: "freeship", value: 0, minSubtotal: 25000, maxUses: null, usageCount: 5, isActive: true, expiresAt: null },
+    { code: "GOLD20", label: "-20 % dès 100 000 FCFA d'achat", type: "percent", value: 20, minSubtotal: 100000, maxUses: null, usageCount: 3, isActive: true, expiresAt: null },
+    { code: "REDUCTION5", label: "-5 000 FCFA sur votre commande", type: "amount", value: 5000, minSubtotal: 30000, maxUses: null, usageCount: 4, isActive: true, expiresAt: null },
   ]
   await prisma.promoCode.createMany({
     data: [...officialPromos, ...EXTRA_PROMOS],
@@ -856,7 +856,7 @@ async function main() {
         to: "marie@test.fr",
         subject: "Confirmation de commande MC-DEMO01 — MignonciteShop",
         template: "order_confirmation",
-        body: "Bonjour Marie,\n\nMerci pour votre commande !\n  Référence : MC-DEMO01\n  TOTAL : 62,98 €\n",
+        body: "Bonjour Marie,\n\nMerci pour votre commande !\n  Référence : MC-DEMO01\n  TOTAL : 62 980 FCFA\n",
         data: '{"reference":"MC-DEMO01","total":62.98}',
         status: "logged",
         createdAt: daysAgoDate(2, 10),

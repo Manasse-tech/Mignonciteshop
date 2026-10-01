@@ -18,8 +18,29 @@ const settingsPatchSchema = z
     shippingPickup: z.number().finite().min(0).max(100),
     freeShippingThreshold: z.number().finite().min(0).max(1000),
     lowStockThreshold: z.number().int().min(0).max(100),
+    // Paiement mobile money — structure réelle (pas de simulation) :
+    // désactivé ⇒ POST /api/payments/initiate répond 503.
+    paymentMobileMoneyEnabled: z.boolean(),
+    paymentMobileMoneyNumber: z
+      .string()
+      .trim()
+      .max(30)
+      .regex(
+        /^[+0-9 ().-]*$/,
+        "Numéro invalide (chiffres, espaces, + - ( ) uniquement)."
+      ),
+    paymentInstructions: z.string().trim().max(600),
   })
   .partial()
+
+/**
+ * Sérialisation en base : booléens en "1"/"0" (convention Setting),
+ * autres valeurs en texte décimal.
+ */
+function serializeSettingValue(value: number | boolean | string): string {
+  if (typeof value === "boolean") return value ? "1" : "0";
+  return String(value);
+}
 
 /**
  * GET /api/admin/settings — réglages courants de la boutique (admin).
@@ -60,8 +81,8 @@ export async function PATCH(request: NextRequest) {
     const upserts = Object.entries(parsed.data).map(([key, value]) =>
       db.setting.upsert({
         where: { key },
-        update: { value: String(value) },
-        create: { key, value: String(value) },
+        update: { value: serializeSettingValue(value) },
+        create: { key, value: serializeSettingValue(value) },
       })
     )
     await db.$transaction(upserts)

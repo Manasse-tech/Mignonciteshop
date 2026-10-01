@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Eye, EyeOff, KeyRound, Shield } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Eye, EyeOff, KeyRound, Lock, Shield } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,6 +18,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { useAuthStore, type AuthUser } from "@/lib/auth-store";
+import {
+  LoginReturnNotice,
+  consumeAfterLogin,
+} from "@/components/shop/require-auth";
 
 interface LoginPageProps {
   onNavigate: (page: string) => void;
@@ -68,6 +73,7 @@ function PasswordInput({
 
 export function LoginPage({ onNavigate }: LoginPageProps) {
   const { setUser } = useAuthStore();
+  const router = useRouter();
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [registerName, setRegisterName] = useState("");
@@ -75,6 +81,75 @@ export function LoginPage({ onNavigate }: LoginPageProps) {
   const [registerPassword, setRegisterPassword] = useState("");
   const [registerConfirm, setRegisterConfirm] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  // ── Geste secret : 7 taps sur le nom de la boutique → connexion admin ──
+  const tapCount = useRef(0);
+  const tapTimer = useRef<number | null>(null);
+  const [adminSecretOpen, setAdminSecretOpen] = useState(false);
+  const [adminFirstTime, setAdminFirstTime] = useState(false);
+  const [adminEmail, setAdminEmail] = useState("");
+  const [adminPassword, setAdminPassword] = useState("");
+  const [adminSubmitting, setAdminSubmitting] = useState(false);
+
+  const handleSecretTap = () => {
+    tapCount.current += 1;
+    if (tapTimer.current) window.clearTimeout(tapTimer.current);
+    // Série invalidée après 3 s d'inactivité — evite les taps fortuits.
+    tapTimer.current = window.setTimeout(() => {
+      tapCount.current = 0;
+    }, 3000);
+    if (tapCount.current >= 7) {
+      tapCount.current = 0;
+      setAdminEmail("");
+      setAdminPassword("");
+      // Détermine le mode du formulaire caché : enregistrement (aucun admin
+      // défini → les premiers identifiants deviennent le compte admin) ou
+      // connexion (un admin existe déjà).
+      fetch("/api/auth/admin-claim")
+        .then((r) => (r.ok ? r.json() : { adminExists: false }))
+        .then(
+          (data: { adminExists?: boolean } | null) =>
+            setAdminFirstTime(!data?.adminExists)
+        )
+        .catch(() => setAdminFirstTime(false));
+      setAdminSecretOpen(true);
+    }
+  };
+
+  const handleAdminSecretSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (adminSubmitting) return;
+    setAdminSubmitting(true);
+    try {
+      const response = await fetch("/api/auth/admin-claim", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: adminEmail, password: adminPassword }),
+      });
+      const data = (await response.json().catch(() => null)) as {
+        ok?: boolean;
+        error?: string;
+        created?: boolean;
+        user?: AuthUser;
+      } | null;
+      if (!response.ok || !data?.ok || !data.user) {
+        throw new Error(data?.error ?? "Accès administrateur impossible.");
+      }
+      setUser(data.user);
+      setAdminSecretOpen(false);
+      toast.success(
+        data.created
+          ? "Compte administrateur enregistré. Bienvenue !"
+          : "Connexion administrateur réussie."
+      );
+      onNavigate("admin");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Accès impossible.");
+    } finally {
+      setAdminSubmitting(false);
+    }
+  };
+  // ── Fin geste secret ──
 
   // Réinitialisation de mot de passe — flux « mot de passe oublié ».
   // Le lien e-mail (?reset=<token>) ouvre directement le formulaire.
@@ -97,6 +172,14 @@ export function LoginPage({ onNavigate }: LoginPageProps) {
   }, []);
 
   const redirectAfterLogin = (user: AuthUser) => {
+    // Retour automatique sur la page protégée demandée avant redirection
+    // (panier, favoris…) si elle a été mémorisée.
+    const after = consumeAfterLogin();
+    if (after) {
+      const qs = after.startsWith("?") ? after.slice(1) : after.replace(/^\//, "");
+      router.push(qs ? `/?${qs}` : "/");
+      return;
+    }
     // L'admin est redirigé vers son espace de gestion.
     onNavigate(user.role === "admin" ? "admin" : "account");
   };
@@ -296,28 +379,25 @@ export function LoginPage({ onNavigate }: LoginPageProps) {
         <div className="flex-1 flex items-center justify-center py-16 px-4">
           <div className="w-full max-w-md bg-card rounded-2xl border shadow-sm p-8">
             <div className="text-center mb-2">
-              <span className="text-2xl font-bold tracking-tight logo-glow">
-                <span className="text-foreground">MIGNONCITE</span>
-                <span className="text-[#C9A961]">SHOP</span>
-              </span>
+              {/* Geste secret : 7 taps rapides sur le nom de la boutique
+                  ouvrent la page de connexion administrateur réservée. */}
+              <button
+                type="button"
+                onClick={handleSecretTap}
+                aria-label="MignonciteShop"
+                className="mx-auto block cursor-default select-none"
+              >
+                <span className="text-2xl font-bold tracking-tight logo-glow">
+                  <span className="text-foreground">MIGNONCITE</span>
+                  <span className="text-[#C9A961]">SHOP</span>
+                </span>
+              </button>
             </div>
             <p className="text-center text-sm text-muted-foreground mb-6">
               Connectez-vous pour suivre vos commandes et gérer votre compte
             </p>
 
-            <div className="mb-5 rounded-xl border border-[#C9A961]/30 bg-[#C9A961]/5 px-4 py-3 flex items-start gap-2.5">
-              <Shield className="w-4 h-4 text-[#C9A961] mt-0.5 shrink-0" aria-hidden="true" />
-              <p className="text-xs text-muted-foreground">
-                Espace de démonstration — administrateur :
-                <span className="block font-mono text-foreground mt-1 break-all">
-                  admin@mignonciteshop.fr · Admin1234!
-                </span>
-                Client (avec historique de commandes) :
-                <span className="block font-mono text-foreground mt-1 break-all">
-                  marie@test.fr · Client1234!
-                </span>
-              </p>
-            </div>
+            <LoginReturnNotice />
 
             <Tabs defaultValue="login">
               <TabsList className="grid grid-cols-2 w-full mb-6">
@@ -468,6 +548,64 @@ export function LoginPage({ onNavigate }: LoginPageProps) {
               {forgotSending ? "Envoi..." : "Envoyer le lien"}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog — connexion administrateur CACHÉE (7 taps sur le logo) */}
+      <Dialog open={adminSecretOpen} onOpenChange={setAdminSecretOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Shield className="h-4 w-4 text-[#C9A961]" aria-hidden="true" />
+              Espace réservé — Administration
+            </DialogTitle>
+            <DialogDescription>
+              {adminFirstTime
+                ? "Aucun administrateur n'est encore défini : les identifiants saisis ci-dessous seront ENREGISTRÉS comme compte administrateur."
+                : "Saisissez les identifiants administrateur de la boutique."}
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleAdminSecretSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="admin-secret-email">Email administrateur</Label>
+              <Input
+                id="admin-secret-email"
+                type="email"
+                value={adminEmail}
+                onChange={(e) => setAdminEmail(e.target.value)}
+                placeholder="admin@votre-boutique.com"
+                required
+                autoComplete="email"
+                className="h-11 rounded-xl"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="admin-secret-password">Mot de passe</Label>
+              <PasswordInput
+                id="admin-secret-password"
+                value={adminPassword}
+                onChange={setAdminPassword}
+                placeholder={adminFirstTime ? "Au moins 8 caractères (lettre + chiffre)" : "Votre mot de passe"}
+                autoComplete="current-password"
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setAdminSecretOpen(false)}>
+                Annuler
+              </Button>
+              <Button
+                type="submit"
+                disabled={adminSubmitting}
+                className="bg-[#C9A961] hover:bg-[#b8994f] text-white"
+              >
+                {adminSubmitting
+                  ? "Vérification..."
+                  : adminFirstTime
+                    ? "Enregistrer et se connecter"
+                    : "Se connecter"}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

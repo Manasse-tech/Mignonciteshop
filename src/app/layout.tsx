@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/shop/theme-provider";
+import { IntroSplash } from "@/components/shop/intro-splash";
 import { Toaster } from "sonner";
 
 const inter = Inter({
@@ -116,6 +117,7 @@ export default function RootLayout({
           dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteJsonLd) }}
         />
         <ThemeProvider>
+          <IntroSplash />
           {children}
           <Toaster position="bottom-right" richColors closeButton />
         </ThemeProvider>

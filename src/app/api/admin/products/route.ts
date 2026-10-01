@@ -241,7 +241,7 @@ export async function PATCH(request: NextRequest) {
             `« ${product.name} » est de nouveau disponible dans notre boutique.`,
             `Les inscriptions à l'alerte ne sont pas réservées — ne tardez pas :`,
             ``,
-            `Prix : ${product.price.toFixed(2).replace(".", ",")} €`,
+            `Prix : ${Math.round(product.price).toLocaleString("fr-FR")} FCFA`,
           ],
           data: { productId: id, productName: product.name },
         })

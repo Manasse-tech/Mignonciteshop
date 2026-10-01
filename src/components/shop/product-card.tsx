@@ -3,12 +3,12 @@
 import { Eye, Flame, GitCompareArrows, Heart, ShoppingBag, Star } from "lucide-react";
 import { toast } from "sonner";
 import { useShopStore } from "@/lib/store";
-import { discountPercent } from "@/lib/format";
+import { discountPercent, formatPrice, formatPriceCompact } from "@/lib/format";
 import type { Product } from "@/lib/types";
 
-/** Fidèle au site original : « 79.99 € » (point décimal). */
+/** Prix affiché en FCFA — source unique : src/lib/format.ts. */
 function priceLabel(price: number): string {
-  return `${price.toFixed(2)} €`;
+  return formatPrice(price);
 }
 
 /**
@@ -234,16 +234,16 @@ export function ProductCard({
       {/* ─── INFOS PRODUIT ─── */}
       <button
         type="button"
-        className="block w-full cursor-pointer text-left p-4"
+        className="block w-full cursor-pointer text-left p-3 @min-[280px]:p-4"
         onClick={() => openProduct(product)}
       >
-        <p className="text-xs text-[#C9A961] font-medium uppercase tracking-wider mb-1">
+        <p className="text-xs text-[#C9A961] font-medium uppercase tracking-wider mb-1 truncate">
           {product.category?.name ?? ""}
         </p>
         <h3 className="font-semibold text-foreground mb-2 line-clamp-1 group-hover:text-[#C9A961] transition-colors">
           {product.name}
         </h3>
-        <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
           <span className="inline-flex items-center">
             {Array.from({ length: 5 }).map((_, i) => (
               <Star
@@ -256,22 +256,33 @@ export function ProductCard({
                 }`}
               />
             ))}
-            <span className="text-xs text-muted-foreground ml-1">
+            <span className="text-xs text-muted-foreground ml-1 hidden @min-[200px]:inline">
               ({product.reviewCount})
             </span>
           </span>
-          <span className="inline-flex items-center gap-1 flex-shrink-0 text-[11px] font-semibold text-orange-600 dark:text-orange-400">
+          <span className="inline-flex items-center gap-1 flex-shrink-0 text-[10px] @min-[220px]:text-[11px] font-semibold text-orange-600 dark:text-orange-400">
             <Flame className="w-3.5 h-3.5" aria-hidden="true" />
             {product.soldCount} vendus
           </span>
         </div>
-        <div className="flex items-center gap-3">
-          <span className="text-lg font-bold text-foreground">
-            {priceLabel(product.price)}
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+          <span className="text-base @min-[240px]:text-lg font-bold text-foreground">
+            {/* Prix compact « 80k F » sous 200px de carte, prix complet sinon */}
+            <span className="@min-[200px]:hidden">
+              {formatPriceCompact(product.price)} F
+            </span>
+            <span className="hidden @min-[200px]:inline">
+              {priceLabel(product.price)}
+            </span>
           </span>
           {product.oldPrice && (
-            <span className="text-sm text-muted-foreground/70 line-through">
-              {priceLabel(product.oldPrice)}
+            <span className="text-xs @min-[240px]:text-sm text-muted-foreground/70 line-through">
+              <span className="@min-[200px]:hidden">
+                {formatPriceCompact(product.oldPrice)} F
+              </span>
+              <span className="hidden @min-[200px]:inline">
+                {priceLabel(product.oldPrice)}
+              </span>
             </span>
           )}
         </div>

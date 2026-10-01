@@ -37,12 +37,12 @@ const FAQ_SECTIONS: FaqSection[] = [
       {
         question: "Quels sont les délais et frais de livraison ?",
         answer:
-          "Les commandes sont expédiées sous 24 à 48 heures ouvrées. La livraison standard prend 2 à 5 jours ouvrés pour 4.99 €. La livraison en point relais est proposée à 2.99 € et la livraison express à 9.99 € (24 à 48 heures ouvrées).",
+          "Les commandes sont expédiées sous 24 à 48 heures ouvrées. La livraison standard prend 2 à 5 jours ouvrés à 1 000 FCFA. La livraison en point relais est proposée à 500 FCFA et la livraison express à 2 500 FCFA (24 à 48 heures ouvrées).",
       },
       {
         question: "La livraison est-elle offerte ?",
         answer:
-          "Oui, la livraison standard est offerte dès 50 € d'achat en France métropolitaine. Le seuil est calculé sur le sous-total de votre panier et s'applique automatiquement à l'étape de récapitulatif, avant le paiement.",
+          "Oui, la livraison standard est offerte dès 25 000 FCFA d'achat. Le seuil est calculé sur le sous-total de votre panier et s'applique automatiquement à l'étape de récapitulatif, avant le paiement.",
       },
       {
         question: "Comment retourner un article ?",

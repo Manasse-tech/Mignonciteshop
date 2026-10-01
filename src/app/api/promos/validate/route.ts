@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic"
 
 const validateSchema = z.object({
   code: z.string().min(1).max(50),
-  subtotal: z.number().finite().min(0).max(100000),
+  subtotal: z.number().finite().min(0).max(10_000_000),
 })
 
 /**

@@ -82,7 +82,7 @@ export function evaluatePromo(
   if (subtotal < promo.minSubtotal) {
     return {
       ok: false,
-      error: `Ce code est valable dès ${round2(promo.minSubtotal).toFixed(2)} € d'achat.`,
+      error: `Ce code est valable dès ${Math.round(promo.minSubtotal).toLocaleString('fr-FR')} FCFA d'achat.`,
       discount: 0,
       freeShipping: false,
     };

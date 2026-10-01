@@ -27,11 +27,12 @@ import { useShopStore, selectCartTotal } from "@/lib/store";
 import { computePromo, validatePromo, validatePromoRemote } from "@/lib/promos";
 import { trackEvent } from "@/lib/analytics";
 import { useStoreSettings } from "@/lib/use-store-settings";
+import { formatPrice } from "@/lib/format";
 import type { PromoDefinition } from "@/lib/types";
 
-/** Fidèle au site original : « 79.99 € » (point décimal). */
+/** Prix affiché en FCFA — source unique : src/lib/format.ts. */
 function priceLabel(price: number): string {
-  return `${price.toFixed(2)} €`;
+  return formatPrice(price);
 }
 
 const emptySubscribe = () => () => {};
@@ -261,7 +262,7 @@ export function CartPage({ onNavigate }: CartPageProps) {
                       Remise ({promo.code})
                     </span>
                     <span className="font-medium text-green-600 dark:text-green-400">
-                      -{discount.toFixed(2)} €
+                      -{formatPrice(discount)}
                     </span>
                   </div>
                 )}
@@ -278,7 +279,7 @@ export function CartPage({ onNavigate }: CartPageProps) {
                   )}
                 </div>
                 <p className="text-xs text-muted-foreground/80">
-                  Offerte dès {storeSettings.freeShippingThreshold}€ d&apos;achat.
+                  Offerte dès {formatPrice(storeSettings.freeShippingThreshold)} d&apos;achat.
                 </p>
                 <div className="border-t border-border pt-3 flex items-center justify-between">
                   <span className="font-semibold text-foreground">

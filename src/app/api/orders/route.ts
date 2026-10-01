@@ -12,6 +12,8 @@ import {
 import { getStoreSettings } from "@/lib/settings"
 import { sendEmail } from "@/lib/mailer"
 import { chargeCard } from "@/lib/payments"
+import { awardPointsForOrder } from "@/lib/loyalty"
+import { getSessionUserFromRequest } from "@/lib/auth-server"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -40,7 +42,9 @@ const orderSchema = z.object({
     .max(50),
   shippingMethod: z.string().refine(isShippingMethod, "Mode de livraison invalide"),
   promoCode: z.string().max(50).nullable().optional(),
-  paymentMethod: z.enum(["card", "paypal", "transfer"]).default("card"),
+  paymentMethod: z
+    .enum(["card", "paypal", "transfer", "mobile_money"])
+    .default("card"),
   // Données carte : validées puis JAMAIS persistées en clair (PCI —
   // seuls les 4 derniers chiffres et l'identifiant de transaction sont
   // conservés sur la commande).
@@ -83,7 +87,7 @@ const orderSchema = z.object({
  */
 
 function formatEuro(value: number): string {
-  return value.toFixed(2).replace(".", ",") + " €"
+  return new Intl.NumberFormat("fr-FR").format(Math.round(value)) + " F CFA"
 }
 export async function POST(request: NextRequest) {
   try {
@@ -343,8 +347,25 @@ export async function POST(request: NextRequest) {
     ])
 
     console.log(
-      `[ORDER] ${order.reference} — ${order.customerName} — total ${order.total.toFixed(2)} €`
+      `[ORDER] ${order.reference} — ${order.customerName} — total ${order.total.toFixed(0)} FCFA`
     )
+
+    // FIDÉLITÉ — crédit des points pour un utilisateur CONNECTÉ dont
+    // l'e-mail de commande correspond au compte (idempotent côté loyalty).
+    // Fire-and-forget : une erreur de fidélité ne fait jamais échouer
+    // la commande déjà enregistrée.
+    const sessionUser = await getSessionUserFromRequest(request).catch(() => null)
+    if (
+      sessionUser &&
+      sessionUser.email.toLowerCase() === order.email.toLowerCase()
+    ) {
+      awardPointsForOrder({
+        userId: sessionUser.id,
+        orderId: order.id,
+        orderReference: order.reference,
+        amountSpent: order.total,
+      }).catch(() => undefined)
+    }
 
     return NextResponse.json({
       ok: true,

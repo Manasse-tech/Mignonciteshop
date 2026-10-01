@@ -155,7 +155,7 @@ export async function PATCH(request: NextRequest) {
           : ``,
         status === "cancelled"
           ? existing.paymentStatus === "refunded"
-            ? `\nVotre paiement (${existing.total.toFixed(2)} €) a été remboursé — il apparaîtra sur votre compte sous quelques jours.`
+            ? `\nVotre paiement (${new Intl.NumberFormat("fr-FR").format(Math.round(existing.total))} FCFA) a été remboursé — il apparaîtra sur votre compte sous quelques jours.`
             : `\nAucun montant ne vous sera débité.`
           : ``,
       ].filter((line) => line !== ""),

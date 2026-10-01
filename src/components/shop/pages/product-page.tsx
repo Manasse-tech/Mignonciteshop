@@ -42,7 +42,7 @@ import { ProductCard } from "@/components/shop/product-card";
 import { api, ApiError } from "@/lib/api";
 import { trackEvent } from "@/lib/analytics";
 import { useShopStore } from "@/lib/store";
-import { discountPercent, parseJsonArray } from "@/lib/format";
+import { discountPercent, formatPrice, parseJsonArray } from "@/lib/format";
 import type { Product, Review } from "@/lib/types";
 
 /** Graphique recharts (~lourd) chargé en différé, sans CLS (squelette 280px). */
@@ -56,9 +56,9 @@ const PriceHistoryChart = dynamic(
   }
 );
 
-/** Fidèle au site original : « 79.99 € » (point décimal). */
+/** Prix affiché en FCFA — source unique : src/lib/format.ts. */
 function priceLabel(price: number): string {
-  return `${price.toFixed(2)} €`;
+  return formatPrice(price);
 }
 
 const GOLD = "#C9A961";
@@ -868,14 +868,14 @@ function ProductContent({
                 </button>
               ))}
 
-            <div className="bg-muted rounded-2xl p-6 grid grid-cols-3 gap-4">
+            <div className="bg-muted rounded-2xl p-6 grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
               <div className="text-center">
                 <Truck
                   className="w-6 h-6 mx-auto text-[#C9A961] mb-2"
                   aria-hidden="true"
                 />
                 <span className="text-xs text-muted-foreground">
-                  Livraison gratuite dès 50€
+                  Livraison gratuite dès 25 000 FCFA
                 </span>
               </div>
               <div className="text-center">
@@ -1172,7 +1172,7 @@ function ProductContent({
                 Voir tout
               </button>
             </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 md:grid-cols-4 md:gap-6">
               {similar.map((item) => (
                 <ProductCard
                   key={item.id}
@@ -1191,9 +1191,9 @@ function ProductContent({
             <h2 className="text-2xl md:text-3xl font-bold text-foreground mb-8">
               Récemment consultés
             </h2>
-            <div className="flex gap-4 overflow-x-auto pb-2">
+            <div className="flex gap-3 overflow-x-auto snap-x snap-mandatory scrollbar-none pb-2">
               {recentProducts.map((item) => (
-                <div key={item.id} className="w-48 flex-shrink-0">
+                <div key={item.id} className="w-48 flex-shrink-0 snap-start">
                   <ProductCard
                     product={item}
                     onQuickView={onQuickView}

@@ -16,6 +16,11 @@ import { api, type StoreSettingsPublic } from "@/lib/api";
 export const DEFAULT_STORE_SETTINGS: StoreSettingsPublic = {
   shipping: { standard: 4.99, express: 9.99, pickup: 2.99 },
   freeShippingThreshold: 50,
+  payment: {
+    mobileMoneyEnabled: false,
+    mobileMoneyNumber: "",
+    instructions: "",
+  },
 };
 
 const CACHE_KEY = "mc-settings:shipping";
@@ -35,8 +40,13 @@ function readSessionCache(): StoreSettingsPublic | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as { data: StoreSettingsPublic; at: number };
     if (Date.now() - parsed.at < CACHE_TTL_MS) {
-      memoryCache = parsed;
-      return parsed.data;
+      // Shape normalisé (les anciens caches n'ont pas la clé « payment »).
+      const normalized: StoreSettingsPublic = {
+        ...parsed.data,
+        payment: parsed.data.payment ?? DEFAULT_STORE_SETTINGS.payment,
+      };
+      memoryCache = { data: normalized, at: parsed.at };
+      return normalized;
     }
   } catch {
     // sessionStorage indisponible → ignore silencieusement.
@@ -69,8 +79,13 @@ export function useStoreSettings(): StoreSettingsPublic {
       .get()
       .then((data) => {
         if (cancelled) return;
-        writeSessionCache(data);
-        setSettings(data);
+        // Tolérance aux anciens caches sessionStorage (shape sans « payment »).
+        const normalized: StoreSettingsPublic = {
+          ...data,
+          payment: data.payment ?? DEFAULT_STORE_SETTINGS.payment,
+        };
+        writeSessionCache(normalized);
+        setSettings(normalized);
       })
       .catch(() => {
         // Défauts conservés en cas d'échec réseau.

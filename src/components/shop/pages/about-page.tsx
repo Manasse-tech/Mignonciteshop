@@ -19,7 +19,7 @@ const VALUES = [
     icon: Truck,
     title: "Livraison rapide",
     description:
-      "Expédition en 48h, livraison suivie et offerte dès 50€ d'achat partout en France.",
+      "Expédition en 48h, livraison suivie et offerte dès 25 000 FCFA d'achat partout en Côte d'Ivoire.",
   },
   {
     icon: ShieldCheck,

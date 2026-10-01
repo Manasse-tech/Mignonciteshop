@@ -21,13 +21,13 @@ export function CategoriesSection({
           <p className="text-[#C9A961] text-sm font-semibold tracking-widest uppercase mb-2">
             Explorez
           </p>
-          <h2 className="text-3xl md:text-4xl font-bold text-foreground">
+          <h2 className="text-fluid-h2 font-bold text-foreground">
             Nos Catégories
           </h2>
         </div>
 
         {loading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 lg:gap-6">
             {Array.from({ length: 4 }).map((_, i) => (
               <div
                 key={i}
@@ -36,7 +36,7 @@ export function CategoriesSection({
             ))}
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 lg:gap-6">
             {categories.map((category, i) => (
               <button
                 key={category.id}

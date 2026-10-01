@@ -7,7 +7,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -73,6 +73,7 @@ model User {
   password      String? // hash bcrypt
   role          String    @default("customer") // customer | admin
   image         String?
+  loyalty       LoyaltyAccount?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   accounts      Account[]
@@ -163,6 +164,7 @@ model Order {
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
   items          OrderItem[]
+  payments       PaymentTransaction[]
 
   @@index([email])
   @@index([createdAt])
@@ -261,9 +263,6 @@ model AnalyticsEvent {
 
 // ---------------------------------------------------------------------------
 // Journal des e-mails transactionnels « envoyés ».
-// En sandbox (pas de SMTP), le provider LOG persiste chaque e-mail ici :
-// l'admin peut les consulter dans l'onglet E-mails. Le jour où des clés
-// SMTP/Resend arrivent, il suffit d'ajouter un provider dans src/lib/mailer.
 // ---------------------------------------------------------------------------
 
 model EmailLog {
@@ -295,4 +294,64 @@ model AuditLog {
 
   @@index([action])
   @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Fidélité — un compte par utilisateur, points gagnés selon les dépenses.
+// 1 point / 100 F CFA dépensés (bonus selon palier, voir src/lib/loyalty.ts).
+// Toutes les variations passent par LoyaltyTransaction (piste d'audit).
+// ---------------------------------------------------------------------------
+
+model LoyaltyAccount {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  points        Int      @default(0) // solde disponible
+  lifetimePoints Int     @default(0) // total accumulé (détermine le palier)
+  tier          String   @default("bronze") // bronze | silver | gold
+  updatedAt     DateTime @updatedAt
+  createdAt     DateTime @default(now())
+  transactions  LoyaltyTransaction[]
+}
+
+model LoyaltyTransaction {
+  id        String   @id @default(cuid())
+  accountId String
+  account   LoyaltyAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  type      String // earn | redeem | adjust | expire
+  points    Int // +/- (positif = gain, négatif = dépense/ajustement)
+  reason    String // order:MC-XXXXXX | signup_bonus | manual | ...
+  orderId   String?
+  meta      String   @default("{}")
+  createdAt DateTime @default(now())
+
+  @@index([accountId])
+  @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Paiements — transactions provider (mobile money / carte).
+// Structure réelle : créée en « pending » par POST /api/payments/initiate,
+// finalisée par le webhook du prestataire (signature x-webhook-secret).
+// PAS de simulation : sans provider configuré, le paiement reste honnête.
+// ---------------------------------------------------------------------------
+
+model PaymentTransaction {
+  id            String   @id @default(cuid())
+  reference     String   @unique // ex: MC-PAY-7F3K2A
+  orderId       String?
+  order         Order?   @relation(fields: [orderId], references: [id])
+  provider      String // mobile_money_wave | mobile_money_orange | mobile_money_mtn | mobile_money_moov | card
+  amount        Float
+  currency      String   @default("XOF")
+  status        String   @default("pending") // pending | processing | success | failed | cancelled | expired
+  providerTxId  String?
+  phoneNumber   String?
+  failureReason String?
+  metadata      String   @default("{}")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([orderId])
+  @@index([status])
 }

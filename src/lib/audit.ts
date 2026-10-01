@@ -12,6 +12,9 @@ export type AuditAction =
   | "product.update"
   | "product.delete"
   | "product.restock"
+  | "category.create"
+  | "category.update"
+  | "category.delete"
   | "order.status"
   | "order.refund"
   | "promo.create"
@@ -21,7 +24,8 @@ export type AuditAction =
   | "review.unpublish"
   | "review.delete"
   | "customer.role"
-  | "settings.update";
+  | "settings.update"
+  | "payment.webhook";
 
 export async function logAudit(input: {
   actor: string;

@@ -49,10 +49,10 @@ export default function PriceHistoryChart({ data }: PriceHistoryChartProps) {
           tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
           axisLine={false}
           tickLine={false}
-          tickFormatter={(value) => `${Math.round(Number(value))} €`}
+          tickFormatter={(value) => `${Math.round(Number(value)).toLocaleString("fr-FR")} F`}
         />
         <Tooltip
-          formatter={(value) => [`${Number(value).toFixed(2)} €`, "Prix"]}
+          formatter={(value) => [`${Math.round(Number(value)).toLocaleString("fr-FR")} F CFA`, "Prix"]}
           labelFormatter={(label) => String(label)}
           contentStyle={{
             backgroundColor: "var(--popover)",

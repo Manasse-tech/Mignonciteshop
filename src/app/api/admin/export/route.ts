@@ -66,10 +66,10 @@ export async function GET(request: NextRequest) {
           "Ville",
           "Pays",
           "Articles",
-          "Sous-total (€)",
-          "Remise (€)",
-          "Livraison (€)",
-          "Total (€)",
+          "Sous-total (FCFA)",
+          "Remise (FCFA)",
+          "Livraison (FCFA)",
+          "Total (FCFA)",
           "Code promo",
           "Mode livraison",
           "Paiement",
@@ -109,8 +109,8 @@ export async function GET(request: NextRequest) {
         [
           "Nom",
           "Catégorie",
-          "Prix (€)",
-          "Ancien prix (€)",
+          "Prix (FCFA)",
+          "Ancien prix (FCFA)",
           "Stock",
           "Vendus",
           "Note",
@@ -155,7 +155,7 @@ export async function GET(request: NextRequest) {
         statsByEmail.set(order.email, entry)
       }
       const csv = toCsv(
-        ["Nom", "Email", "Rôle", "Inscription", "Commandes", "Total dépensé (€)"],
+        ["Nom", "Email", "Rôle", "Inscription", "Commandes", "Total dépensé (FCFA)"],
         users.map((u) => {
           const stats = statsByEmail.get(u.email.toLowerCase()) ?? {
             count: 0,

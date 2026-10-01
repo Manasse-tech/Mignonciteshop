@@ -53,6 +53,7 @@ export type NavigatePage =
   | "cart"
   | "wishlist"
   | "login"
+  | "account"
   | "admin";
 
 interface HeaderProps {
@@ -89,14 +90,25 @@ export function Header({ active, onNavigate, onSearch }: HeaderProps) {
 
   const isDark = mounted && resolvedTheme === "dark";
 
-  const handleComingSoon = () => {
-    onNavigate("shop");
-    toast.info("Cette fonctionnalité arrive bientôt !");
-  };
-
   const go = (page: NavigatePage) => {
     setMobileOpen(false);
     onNavigate(page);
+  };
+
+  const handleLoyalty = () => {
+    // Programme de fidélité : carte visible dans l'espace compte.
+    // Non connecté → page de connexion (le retour est géré par RequireAuth).
+    if (user) {
+      try {
+        sessionStorage.setItem("mc_scroll_fidelite", "1");
+      } catch {
+        // sessionStorage indisponible → navigation simple.
+      }
+      go("account");
+    } else {
+      go("login");
+      toast.info("Connectez-vous pour consulter votre carte de fidélité.");
+    }
   };
 
   const handleLogout = async () => {
@@ -218,7 +230,7 @@ export function Header({ active, onNavigate, onSearch }: HeaderProps) {
           }`}
           aria-label="Programme de fidélité"
           title="Programme de fidélité"
-          onClick={handleComingSoon}
+          onClick={handleLoyalty}
         >
           <Gift aria-hidden="true" />
         </button>
@@ -248,14 +260,14 @@ export function Header({ active, onNavigate, onSearch }: HeaderProps) {
       }`}
     >
       <div className="max-w-7xl mx-auto sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-20 px-4 sm:px-0">
+        <div className="flex items-center justify-between h-14 sm:h-20 px-4 sm:px-0">
           <button
             type="button"
             className="flex items-center space-x-2 cursor-pointer flex-shrink-0"
             aria-label="MignonciteShop — Accueil"
             onClick={() => onNavigate("home")}
           >
-            <span className="text-lg sm:text-2xl font-bold tracking-tight logo-glow rounded-lg">
+            <span className="text-base sm:text-2xl font-bold tracking-tight logo-glow rounded-lg">
               <span className="text-foreground">MIGNONCITE</span>
               <span className="text-[#C9A961]">SHOP</span>
             </span>
