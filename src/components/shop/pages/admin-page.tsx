@@ -3,10 +3,11 @@
 /**
  * Espace administrateur — /?page=admin
  *
- * Accès réservé au rôle "admin" (session cookie httpOnly côté serveur).
- * Onglets : Tableau de bord · Commandes · Produits · Avis · Codes promo ·
- * Clients · Messages · Rapports · Paramètres.
- * Toutes les données passent par /api/admin/* (protégées par requireAdmin).
+ * Accès réservé au rôle "admin" (Firebase Authentication + Firestore
+ * users/{uid}.role — vérifié par les Security Rules, pas seulement ici).
+ * Onglets : Tableau de bord · Commandes · Produits · Catégories · Avis ·
+ * Codes promo · Clients · Messages · E-mails · Rapports · Journal · Paramètres.
+ * Toutes les données passent directement par Firebase (UNIQUE backend).
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -40,6 +41,8 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
+import { fbStorage, friendlyFirebaseError } from "@/lib/firebase";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -104,6 +107,151 @@ function shortDate(iso: string): string {
     day: "2-digit",
     month: "2-digit",
   });
+}
+
+/* ------------------------------------------------------------------------- */
+/* Composants partagés                                                       */
+/* ------------------------------------------------------------------------- */
+
+/**
+ * Export CSV — généré côté client depuis Firestore (aucun serveur) et
+ * téléchargé immédiatement.
+ */
+function CsvExportButton({
+  type,
+  label,
+  ariaLabel,
+}: {
+  type: "orders" | "products" | "customers";
+  label: string;
+  ariaLabel: string;
+}) {
+  const [exporting, setExporting] = useState(false);
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      className="rounded-full gap-2 h-10"
+      disabled={exporting}
+      aria-label={ariaLabel}
+      onClick={async () => {
+        if (exporting) return;
+        setExporting(true);
+        try {
+          await api.admin.exportCsv(type);
+          toast.success("Export CSV téléchargé.");
+        } catch (error) {
+          toast.error(
+            error instanceof Error ? error.message : "Export impossible."
+          );
+        } finally {
+          setExporting(false);
+        }
+      }}
+    >
+      {exporting ? (
+        <Loader2 className={REFRESH_ICON + " animate-spin"} aria-hidden="true" />
+      ) : (
+        <Download className={REFRESH_ICON} aria-hidden="true" />
+      )}
+      {label}
+    </Button>
+  );
+}
+
+/**
+ * Champ image — upload direct vers Firebase Storage (chemin `uploads/`,
+ * images uniquement, 2 Mo max) avec prévisualisation, ou saisie d'URL.
+ */
+function ImageUploadField({
+  value,
+  onChange,
+  label,
+  placeholder,
+}: {
+  value: string;
+  onChange: (url: string) => void;
+  label: string;
+  placeholder?: string;
+}) {
+  const inputId = useMemo(
+    () => `img-upload-${Math.random().toString(36).slice(2, 9)}`,
+    []
+  );
+  const [uploading, setUploading] = useState(false);
+
+  const handleFile = async (file: File) => {
+    if (uploading) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Veuillez choisir un fichier image (JPG, PNG, WebP…).");
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error("Image trop lourde (2 Mo maximum).");
+      return;
+    }
+    setUploading(true);
+    try {
+      const ext = file.name.split(".").pop()?.toLowerCase() ?? "jpg";
+      const path = `uploads/${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2, 8)}.${ext}`;
+      const storageRef = ref(fbStorage(), path);
+      await uploadBytes(storageRef, file, { contentType: file.type });
+      const url = await getDownloadURL(storageRef);
+      onChange(url);
+      toast.success("Image téléversée vers Firebase Storage.");
+    } catch (error) {
+      toast.error(friendlyFirebaseError(error));
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={inputId}>{label}</Label>
+      <div className="flex gap-2">
+        <Input
+          id={inputId}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder ?? "https://…"}
+          className="h-10 rounded-xl"
+        />
+        <label
+          className={`h-10 shrink-0 inline-flex items-center gap-1.5 rounded-xl border border-border px-3 text-sm font-medium cursor-pointer hover:bg-muted transition-colors ${
+            uploading ? "opacity-60 pointer-events-none" : ""
+          }`}
+        >
+          {uploading ? (
+            <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+          ) : (
+            <Download className="w-4 h-4 rotate-180" aria-hidden="true" />
+          )}
+          {uploading ? "Envoi…" : "Téléverser"}
+          <input
+            type="file"
+            accept="image/*"
+            className="sr-only"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file) void handleFile(file);
+            }}
+          />
+        </label>
+      </div>
+      {value.trim() && (
+        <img
+          src={value.trim()}
+          alt="Aperçu de l'image"
+          className="h-20 w-20 rounded-xl object-cover border border-border/60"
+          loading="lazy"
+        />
+      )}
+    </div>
+  );
 }
 
 /* ------------------------------------------------------------------------- */
@@ -268,6 +416,62 @@ function AdminDashboard() {
 /* Onglet — Tableau de bord                                                  */
 /* ------------------------------------------------------------------------- */
 
+/**
+ * Carte « Données initiales » — proposée quand le catalogue Firestore est
+ * vide : catégories de référence (Vêtements, Chaussures, Sacs, Accessoires,
+ * Mode Homme, Mode Femme), codes promo de démarrage et réglages livraison.
+ */
+function SeedCard({ onSeeded }: { onSeeded: () => void }) {
+  const [seeding, setSeeding] = useState(false);
+  return (
+    <section
+      className="rounded-2xl border border-[#C9A961]/40 bg-[#C9A961]/5 p-5 flex flex-wrap items-center justify-between gap-4"
+      aria-label="Initialisation de la boutique"
+    >
+      <div className="min-w-0">
+        <h2 className="font-semibold text-foreground flex items-center gap-2">
+          <AlertTriangle className="w-5 h-5 text-[#C9A961]" aria-hidden="true" />
+          Boutique vide — données initiales
+        </h2>
+        <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
+          Crée les catégories de référence (Vêtements, Chaussures, Sacs,
+          Accessoires, Mode Homme, Mode Femme), les codes promo de démarrage et
+          les réglages de livraison (FCFA). Aucun produit fictif : le catalogue
+          reste alimenté par vos vrais produits.
+        </p>
+      </div>
+      <Button
+        onClick={async () => {
+          if (seeding) return;
+          setSeeding(true);
+          try {
+            const result = await api.admin.seedInitialData();
+            toast.success(
+              `Initialisation terminée : ${result.categories} catégorie(s), ${result.promos} code(s) promo.`
+            );
+            onSeeded();
+          } catch (error) {
+            toast.error(
+              error instanceof Error ? error.message : "Initialisation impossible."
+            );
+          } finally {
+            setSeeding(false);
+          }
+        }}
+        disabled={seeding}
+        className="bg-[#C9A961] hover:bg-[#b8994f] text-white rounded-full gap-2"
+      >
+        {seeding ? (
+          <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+        ) : (
+          <Plus className="w-4 h-4" aria-hidden="true" />
+        )}
+        {seeding ? "Initialisation…" : "Initialiser la boutique"}
+      </Button>
+    </section>
+  );
+}
+
 function StatsPanel({ refreshKey }: { refreshKey: number }) {
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -292,6 +496,15 @@ function StatsPanel({ refreshKey }: { refreshKey: number }) {
 
   if (loading) return <PanelLoader label="Chargement du tableau de bord…" />;
   if (!stats) return <PanelError label="Statistiques indisponibles." />;
+
+  if (stats.productsCount === 0) {
+    return (
+      <div className="space-y-6">
+        <SeedCard onSeeded={() => window.location.reload()} />
+        <PanelError label="Le catalogue ne contient aucun produit — commencez par initialiser la boutique ou créer un produit." />
+      </div>
+    );
+  }
 
   const maxRevenue = Math.max(1, ...stats.daily.map((d) => d.revenue));
 
@@ -568,21 +781,11 @@ function OrdersPanel({ refreshKey }: { refreshKey: number }) {
             ))}
           </SelectContent>
         </Select>
-        <Button
-          variant="outline"
-          size="sm"
-          className="rounded-full gap-2 h-10"
-          asChild
-        >
-          <a
-            href={api.admin.exportUrl("orders")}
-            download
-            aria-label="Exporter les commandes en CSV"
-          >
-            <Download className={REFRESH_ICON} aria-hidden="true" />
-            Exporter CSV
-          </a>
-        </Button>
+        <CsvExportButton
+          type="orders"
+          label="Exporter CSV"
+          ariaLabel="Exporter les commandes en CSV"
+        />
       </div>
 
       {filteredOrders.length === 0 ? (
@@ -750,6 +953,41 @@ function ProductsPanel({ refreshKey }: { refreshKey: number }) {
   const [quickFilter, setQuickFilter] = useState<
     "all" | "low" | "out" | "hidden"
   >("all");
+
+  // Création de catégorie EN LIGNE depuis le formulaire produit (mission §12).
+  const [inlineCategoryOpen, setInlineCategoryOpen] = useState(false);
+  const [inlineCategoryName, setInlineCategoryName] = useState("");
+  const [inlineCategorySaving, setInlineCategorySaving] = useState(false);
+
+  const handleInlineCategoryCreate = async () => {
+    const name = inlineCategoryName.trim();
+    if (name.length < 2) {
+      toast.error("Le nom de la catégorie est requis (2 caractères minimum).");
+      return;
+    }
+    setInlineCategorySaving(true);
+    try {
+      await api.admin.createCategory({ name });
+      // Rechargement puis sélection automatique de la nouvelle catégorie.
+      const fresh = await api.categories.list();
+      setCategories(fresh);
+      const created =
+        fresh.find((c) => c.name.toLowerCase() === name.toLowerCase()) ??
+        fresh[fresh.length - 1];
+      if (created) {
+        setForm((prev) => ({ ...prev, categoryId: created.id }));
+      }
+      toast.success(`Catégorie « ${name} » créée et sélectionnée.`);
+      setInlineCategoryOpen(false);
+      setInlineCategoryName("");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Création impossible."
+      );
+    } finally {
+      setInlineCategorySaving(false);
+    }
+  };
 
   const filteredProducts = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -952,21 +1190,11 @@ function ProductsPanel({ refreshKey }: { refreshKey: number }) {
             ))}
           </SelectContent>
         </Select>
-        <Button
-          variant="outline"
-          size="sm"
-          className="rounded-full gap-2 h-10"
-          asChild
-        >
-          <a
-            href={api.admin.exportUrl("products")}
-            download
-            aria-label="Exporter le catalogue en CSV"
-          >
-            <Download className={REFRESH_ICON} aria-hidden="true" />
-            Exporter CSV
-          </a>
-        </Button>
+        <CsvExportButton
+          type="products"
+          label="Exporter CSV"
+          ariaLabel="Exporter le catalogue en CSV"
+        />
         <Button
           onClick={openCreate}
           className="bg-[#C9A961] hover:bg-[#b8994f] text-white rounded-full gap-2 h-10"
@@ -1149,21 +1377,39 @@ function ProductsPanel({ refreshKey }: { refreshKey: number }) {
                 />
               </Field>
               <Field label="Catégorie *">
-                <Select
-                  value={form.categoryId}
-                  onValueChange={(value) => setForm({ ...form, categoryId: value })}
-                >
-                  <SelectTrigger className="h-10 rounded-xl">
-                    <SelectValue placeholder="Choisir…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {categories.map((category) => (
-                      <SelectItem key={category.id} value={category.id}>
-                        {category.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="flex gap-2">
+                  <Select
+                    value={form.categoryId}
+                    onValueChange={(value) => setForm({ ...form, categoryId: value })}
+                  >
+                    <SelectTrigger className="h-10 rounded-xl flex-1 min-w-0">
+                      <SelectValue placeholder="Choisir…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {categories.length === 0 ? (
+                        <div className="px-3 py-2 text-xs text-muted-foreground">
+                          Aucune catégorie — créez-en une.
+                        </div>
+                      ) : (
+                        categories.map((category) => (
+                          <SelectItem key={category.id} value={category.id}>
+                            {category.name}
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                  <button
+                    type="button"
+                    onClick={() => setInlineCategoryOpen(true)}
+                    className="h-10 shrink-0 inline-flex items-center gap-1.5 rounded-xl border border-border px-3 text-sm font-medium hover:border-[#C9A961] hover:text-[#C9A961] transition-colors"
+                    aria-label="Ajouter une nouvelle catégorie"
+                    title="Ajouter une nouvelle catégorie"
+                  >
+                    <Plus className="w-4 h-4" aria-hidden="true" />
+                    <span className="hidden min-[520px]:inline">Nouvelle</span>
+                  </button>
+                </div>
               </Field>
             </div>
 
@@ -1194,14 +1440,12 @@ function ProductsPanel({ refreshKey }: { refreshKey: number }) {
               </Field>
             </div>
 
-            <Field label="URL de l'image principale *">
-              <Input
-                value={form.image}
-                onChange={(e) => setForm({ ...form, image: e.target.value })}
-                placeholder="/images/products/mon-produit.jpg"
-                className="h-10 rounded-xl"
-              />
-            </Field>
+            <ImageUploadField
+              label="Image principale * (téléversement Firebase Storage ou URL)"
+              value={form.image}
+              onChange={(url) => setForm((prev) => ({ ...prev, image: url }))}
+              placeholder="https://… ou /images/products/mon-produit.jpg"
+            />
 
             <Field label="Description courte">
               <Textarea
@@ -1313,6 +1557,54 @@ function ProductsPanel({ refreshKey }: { refreshKey: number }) {
             >
               <Trash2 className="w-4 h-4" aria-hidden="true" />
               Supprimer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog — création de catégorie EN LIGNE (depuis le formulaire produit) */}
+      <Dialog open={inlineCategoryOpen} onOpenChange={setInlineCategoryOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Nouvelle catégorie</DialogTitle>
+            <DialogDescription>
+              La catégorie est enregistrée dans Firebase et devient disponible
+              pour ce produit et les prochains.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="inline-category-name">Nom de la catégorie *</Label>
+            <Input
+              id="inline-category-name"
+              value={inlineCategoryName}
+              onChange={(e) => setInlineCategoryName(e.target.value)}
+              placeholder="Ex : Bijoux"
+              className="h-10 rounded-xl"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void handleInlineCategoryCreate();
+                }
+              }}
+            />
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setInlineCategoryOpen(false)}
+              className="rounded-full"
+            >
+              Annuler
+            </Button>
+            <Button
+              onClick={handleInlineCategoryCreate}
+              disabled={inlineCategorySaving}
+              className="bg-[#C9A961] hover:bg-[#b8994f] text-white rounded-full gap-2"
+            >
+              {inlineCategorySaving && (
+                <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+              )}
+              Créer la catégorie
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1602,22 +1894,12 @@ function CategoriesPanel({
                 className="rounded-xl"
               />
             </Field>
-            <Field label="URL de l'image">
-              <Input
-                value={form.image}
-                onChange={(e) => setForm({ ...form, image: e.target.value })}
-                placeholder="/images/products/ma-categorie.jpg"
-                className="h-10 rounded-xl"
-              />
-              {form.image.trim() && (
-                <img
-                  src={form.image.trim()}
-                  alt="Aperçu de l'image de la catégorie"
-                  className="mt-2 h-16 w-16 rounded-xl object-cover border border-border/60"
-                  loading="lazy"
-                />
-              )}
-            </Field>
+            <ImageUploadField
+              label="Image de la catégorie (téléversement Firebase Storage ou URL)"
+              value={form.image}
+              onChange={(url) => setForm((prev) => ({ ...prev, image: url }))}
+              placeholder="https://… ou /images/categories/ma-categorie.jpg"
+            />
             <Field label="Ordre d'affichage (≥ 0)">
               <Input
                 value={form.order}
@@ -2383,21 +2665,11 @@ function CustomersPanel({ refreshKey }: { refreshKey: number }) {
             aria-label="Rechercher un client"
           />
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className="rounded-full gap-2 h-10"
-          asChild
-        >
-          <a
-            href={api.admin.exportUrl("customers")}
-            download
-            aria-label="Exporter les clients en CSV"
-          >
-            <Download className={REFRESH_ICON} aria-hidden="true" />
-            Exporter CSV
-          </a>
-        </Button>
+        <CsvExportButton
+          type="customers"
+          label="Exporter CSV"
+          ariaLabel="Exporter les clients en CSV"
+        />
         <span className="text-xs text-muted-foreground">
           {filtered.length} compte{filtered.length > 1 ? "s" : ""}
         </span>

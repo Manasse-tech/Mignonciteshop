@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Eye, EyeOff, KeyRound, Lock, Shield } from "lucide-react";
+import { Eye, EyeOff, Lock, Shield } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,8 +16,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { api } from "@/lib/api";
-import { useAuthStore, type AuthUser } from "@/lib/auth-store";
+import { useAuthStore, adminExists, type AuthUser } from "@/lib/auth-store";
 import {
   LoginReturnNotice,
   consumeAfterLogin,
@@ -71,8 +70,68 @@ function PasswordInput({
   );
 }
 
+/** Bouton Google — authentification Firebase (dispo connexion + inscription). */
+function GoogleButton({
+  onDone,
+  disabled,
+}: {
+  onDone: (user: AuthUser) => void;
+  disabled?: boolean;
+}) {
+  const [loading, setLoading] = useState(false);
+
+  const handleGoogle = async () => {
+    if (loading) return;
+    setLoading(true);
+    try {
+      const user = await useAuthStore.getState().loginWithGoogle();
+      toast.success(`Connexion Google réussie. Bienvenue ${user.name ?? ""} !`);
+      onDone(user);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Connexion Google impossible.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleGoogle}
+      disabled={disabled || loading}
+      className="w-full inline-flex items-center justify-center gap-3 h-11 rounded-xl border border-border bg-card text-sm font-semibold text-foreground hover:bg-muted transition-colors disabled:opacity-60 disabled:pointer-events-none"
+    >
+      {loading ? (
+        "Connexion Google…"
+      ) : (
+        <>
+          <svg className="w-[18px] h-[18px]" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              fill="#4285F4"
+              d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.47a5.57 5.57 0 0 1-2.4 3.58v3h3.86c2.26-2.09 3.56-5.17 3.56-8.82Z"
+            />
+            <path
+              fill="#34A853"
+              d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.86-3c-1.08.72-2.45 1.16-4.07 1.16-3.13 0-5.78-2.11-6.73-4.96H1.29v3.09A11.99 11.99 0 0 0 12 24Z"
+            />
+            <path
+              fill="#FBBC05"
+              d="M5.27 14.29A7.2 7.2 0 0 1 4.89 12c0-.8.14-1.57.38-2.29V6.62H1.29a12 12 0 0 0 0 10.76l3.98-3.09Z"
+            />
+            <path
+              fill="#EA4335"
+              d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.69 1.29 6.62l3.98 3.09C6.22 6.86 8.87 4.75 12 4.75Z"
+            />
+          </svg>
+          Continuer avec Google
+        </>
+      )}
+    </button>
+  );
+}
+
 export function LoginPage({ onNavigate }: LoginPageProps) {
-  const { setUser } = useAuthStore();
+  const { ready, hydrate } = useAuthStore();
   const router = useRouter();
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
@@ -94,7 +153,7 @@ export function LoginPage({ onNavigate }: LoginPageProps) {
   const handleSecretTap = () => {
     tapCount.current += 1;
     if (tapTimer.current) window.clearTimeout(tapTimer.current);
-    // Série invalidée après 3 s d'inactivité — evite les taps fortuits.
+    // Série invalidée après 3 s d'inactivité — évite les taps fortuits.
     tapTimer.current = window.setTimeout(() => {
       tapCount.current = 0;
     }, 3000);
@@ -104,13 +163,9 @@ export function LoginPage({ onNavigate }: LoginPageProps) {
       setAdminPassword("");
       // Détermine le mode du formulaire caché : enregistrement (aucun admin
       // défini → les premiers identifiants deviennent le compte admin) ou
-      // connexion (un admin existe déjà).
-      fetch("/api/auth/admin-claim")
-        .then((r) => (r.ok ? r.json() : { adminExists: false }))
-        .then(
-          (data: { adminExists?: boolean } | null) =>
-            setAdminFirstTime(!data?.adminExists)
-        )
+      // connexion (un admin existe déjà — doc settings/public.adminExists).
+      adminExists()
+        .then((exists) => setAdminFirstTime(!exists))
         .catch(() => setAdminFirstTime(false));
       setAdminSecretOpen(true);
     }
@@ -121,24 +176,12 @@ export function LoginPage({ onNavigate }: LoginPageProps) {
     if (adminSubmitting) return;
     setAdminSubmitting(true);
     try {
-      const response = await fetch("/api/auth/admin-claim", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: adminEmail, password: adminPassword }),
-      });
-      const data = (await response.json().catch(() => null)) as {
-        ok?: boolean;
-        error?: string;
-        created?: boolean;
-        user?: AuthUser;
-      } | null;
-      if (!response.ok || !data?.ok || !data.user) {
-        throw new Error(data?.error ?? "Accès administrateur impossible.");
-      }
-      setUser(data.user);
+      const { created } = await useAuthStore
+        .getState()
+        .claimAdmin(adminEmail, adminPassword);
       setAdminSecretOpen(false);
       toast.success(
-        data.created
+        created
           ? "Compte administrateur enregistré. Bienvenue !"
           : "Connexion administrateur réussie."
       );
@@ -151,27 +194,18 @@ export function LoginPage({ onNavigate }: LoginPageProps) {
   };
   // ── Fin geste secret ──
 
-  // Réinitialisation de mot de passe — flux « mot de passe oublié ».
-  // Le lien e-mail (?reset=<token>) ouvre directement le formulaire.
+  // Mot de passe oublié — envoi du lien Firebase (anti-énumération : réponse
+  // toujours positive).
   const [forgotOpen, setForgotOpen] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotSending, setForgotSending] = useState(false);
-  const [resetToken, setResetToken] = useState<string | null>(null);
-  const [resetPassword, setResetPassword] = useState("");
-  const [resetConfirm, setResetConfirm] = useState("");
-  const [resetDone, setResetDone] = useState(false);
 
   // Session déjà active ? → évite de re-saisir ses identifiants.
   useEffect(() => {
-    void useAuthStore.getState().hydrate();
-    // Token de reset passé dans l'URL par l'e-mail de réinitialisation.
-    const token = new URLSearchParams(window.location.search).get("reset");
-    if (token && token.length >= 10) {
-      setResetToken(token);
-    }
-  }, []);
+    if (!ready) void hydrate();
+  }, [ready, hydrate]);
 
-  const redirectAfterLogin = (user: AuthUser) => {
+  const redirectAfterLogin = (loggedIn: AuthUser) => {
     // Retour automatique sur la page protégée demandée avant redirection
     // (panier, favoris…) si elle a été mémorisée.
     const after = consumeAfterLogin();
@@ -181,7 +215,7 @@ export function LoginPage({ onNavigate }: LoginPageProps) {
       return;
     }
     // L'admin est redirigé vers son espace de gestion.
-    onNavigate(user.role === "admin" ? "admin" : "account");
+    onNavigate(loggedIn.role === "admin" ? "admin" : "account");
   };
 
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -189,22 +223,11 @@ export function LoginPage({ onNavigate }: LoginPageProps) {
     if (submitting) return;
     setSubmitting(true);
     try {
-      const response = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: loginEmail, password: loginPassword }),
-      });
-      const data = (await response.json().catch(() => null)) as {
-        ok?: boolean;
-        error?: string;
-        user?: AuthUser;
-      } | null;
-      if (!response.ok || !data?.ok || !data.user) {
-        throw new Error(data?.error ?? "Connexion impossible.");
-      }
-      setUser(data.user);
-      toast.success(`Connexion réussie. Bienvenue ${data.user.name ?? ""} !`);
-      redirectAfterLogin(data.user);
+      const loggedIn = await useAuthStore
+        .getState()
+        .loginWithEmail(loginEmail, loginPassword);
+      toast.success(`Connexion réussie. Bienvenue ${loggedIn.name ?? ""} !`);
+      redirectAfterLogin(loggedIn);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Connexion impossible.");
     } finally {
@@ -225,26 +248,11 @@ export function LoginPage({ onNavigate }: LoginPageProps) {
     }
     setSubmitting(true);
     try {
-      const response = await fetch("/api/auth/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: registerName,
-          email: registerEmail,
-          password: registerPassword,
-        }),
-      });
-      const data = (await response.json().catch(() => null)) as {
-        ok?: boolean;
-        error?: string;
-        user?: AuthUser;
-      } | null;
-      if (!response.ok || !data?.ok || !data.user) {
-        throw new Error(data?.error ?? "Inscription impossible.");
-      }
-      setUser(data.user);
+      const created = await useAuthStore
+        .getState()
+        .registerWithEmail(registerName, registerEmail, registerPassword);
       toast.success("Compte créé. Bienvenue chez MignonciteShop !");
-      redirectAfterLogin(data.user);
+      redirectAfterLogin(created);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Inscription impossible.");
     } finally {
@@ -252,8 +260,7 @@ export function LoginPage({ onNavigate }: LoginPageProps) {
     }
   };
 
-  // Demande de réinitialisation — réponse toujours positive côté serveur
-  // (anti-énumération) : le message reste volontairement générique.
+  // Demande de réinitialisation — Firebase envoie le lien par e-mail.
   const handleForgot = async () => {
     if (forgotSending) return;
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(forgotEmail.trim())) {
@@ -262,12 +269,11 @@ export function LoginPage({ onNavigate }: LoginPageProps) {
     }
     setForgotSending(true);
     try {
-      const result = await api.auth.forgotPassword(forgotEmail.trim());
+      await useAuthStore.getState().sendPasswordReset(forgotEmail.trim());
       setForgotOpen(false);
-      toast.success(result.message, {
-        description:
-          "En démonstration, consultez l'onglet E-mails de l'admin pour voir le lien envoyé.",
-      });
+      toast.success(
+        "Si un compte existe avec cet email, un lien de réinitialisation vient d'être envoyé."
+      );
       setForgotEmail("");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Demande impossible.");
@@ -275,103 +281,6 @@ export function LoginPage({ onNavigate }: LoginPageProps) {
       setForgotSending(false);
     }
   };
-
-  const handleReset = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!resetToken || submitting) return;
-    if (resetPassword !== resetConfirm) {
-      toast.error("Les mots de passe ne correspondent pas.");
-      return;
-    }
-    if (resetPassword.length < 6) {
-      toast.error("Le mot de passe doit contenir au moins 6 caractères.");
-      return;
-    }
-    setSubmitting(true);
-    try {
-      const result = await api.auth.resetPassword(resetToken, resetPassword);
-      setResetDone(true);
-      toast.success(result.message);
-      setResetToken(null);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Réinitialisation impossible.");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  // ---- Écran de réinitialisation (ouvert depuis l'e-mail) ----
-  if (resetToken) {
-    return (
-      <div className="bg-background flex-1 flex flex-col">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex-1 flex flex-col w-full">
-          <div className="flex-1 flex items-center justify-center py-16 px-4">
-            <div className="w-full max-w-md bg-card rounded-2xl border shadow-sm p-8">
-              <div className="text-center mb-6">
-                <div className="rounded-full bg-[#C9A961]/10 p-4 w-fit mx-auto mb-4">
-                  <KeyRound className="w-8 h-8 text-[#C9A961]" aria-hidden="true" />
-                </div>
-                <h1 className="text-2xl font-bold text-foreground">
-                  Nouveau mot de passe
-                </h1>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Choisissez un mot de passe solide pour sécuriser votre compte.
-                </p>
-              </div>
-
-              {resetDone ? (
-                <div className="text-center space-y-4">
-                  <p className="text-sm text-muted-foreground">
-                    Votre mot de passe a été mis à jour. Vous pouvez dès
-                    maintenant vous connecter.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => onNavigate("login")}
-                    className="w-full bg-[#C9A961] hover:bg-[#b8994f] text-white rounded-full py-3 font-semibold transition-colors"
-                  >
-                    Me connecter
-                  </button>
-                </div>
-              ) : (
-                <form onSubmit={handleReset} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="reset-password">Nouveau mot de passe</Label>
-                    <PasswordInput
-                      id="reset-password"
-                      value={resetPassword}
-                      onChange={setResetPassword}
-                      placeholder="Au moins 6 caractères"
-                      autoComplete="new-password"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="reset-confirm">
-                      Confirmer le mot de passe
-                    </Label>
-                    <PasswordInput
-                      id="reset-confirm"
-                      value={resetConfirm}
-                      onChange={setResetConfirm}
-                      placeholder="Ressaisissez votre mot de passe"
-                      autoComplete="new-password"
-                    />
-                  </div>
-                  <button
-                    type="submit"
-                    disabled={submitting}
-                    className="w-full bg-[#C9A961] hover:bg-[#b8994f] text-white rounded-full py-3 font-semibold transition-colors disabled:opacity-60 disabled:pointer-events-none"
-                  >
-                    {submitting ? "Enregistrement..." : "Mettre à jour mon mot de passe"}
-                  </button>
-                </form>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="bg-background flex-1 flex flex-col">
@@ -448,6 +357,12 @@ export function LoginPage({ onNavigate }: LoginPageProps) {
                     {submitting ? "Connexion..." : "Se connecter"}
                   </button>
                 </form>
+                <div className="my-4 flex items-center gap-3" aria-hidden="true">
+                  <span className="h-px flex-1 bg-border" />
+                  <span className="text-xs text-muted-foreground">ou</span>
+                  <span className="h-px flex-1 bg-border" />
+                </div>
+                <GoogleButton onDone={(loggedIn) => redirectAfterLogin(loggedIn)} />
               </TabsContent>
 
               {/* Inscription */}
@@ -508,6 +423,12 @@ export function LoginPage({ onNavigate }: LoginPageProps) {
                     {submitting ? "Création..." : "Créer mon compte"}
                   </button>
                 </form>
+                <div className="my-4 flex items-center gap-3" aria-hidden="true">
+                  <span className="h-px flex-1 bg-border" />
+                  <span className="text-xs text-muted-foreground">ou</span>
+                  <span className="h-px flex-1 bg-border" />
+                </div>
+                <GoogleButton onDone={(created) => redirectAfterLogin(created)} />
               </TabsContent>
             </Tabs>
           </div>
@@ -521,7 +442,8 @@ export function LoginPage({ onNavigate }: LoginPageProps) {
             <DialogTitle>Mot de passe oublié</DialogTitle>
             <DialogDescription>
               Saisissez l&apos;adresse email de votre compte : vous recevrez un
-              lien de réinitialisation valable 1 heure.
+              lien sécurisé de réinitialisation (envoyé par Firebase
+              Authentication).
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">

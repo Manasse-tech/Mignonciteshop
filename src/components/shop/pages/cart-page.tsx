@@ -82,7 +82,8 @@ export function CartPage({ onNavigate }: CartPageProps) {
     );
   }
 
-  // Panier vide (pas de session dans ce clone → état « connexion » comme l'original).
+  // Panier vide — véritable empty state (l'utilisateur est connecté à ce
+  // stade : proposer « Se connecter » serait illogique).
   if (cart.length === 0) {
     return (
       <div className="bg-background flex-1 flex flex-col">
@@ -95,27 +96,20 @@ export function CartPage({ onNavigate }: CartPageProps) {
               />
             </div>
             <h1 className="text-3xl md:text-4xl font-bold text-foreground mb-3">
-              Votre panier vous attend
+              Votre panier est vide
             </h1>
             <p className="text-muted-foreground mb-8 max-w-md">
-              Connectez-vous pour retrouver votre panier et vos commandes.
+              Parcourez la boutique et ajoutez vos articles préférés — ils
+              apparaîtront ici, prêts pour la commande.
             </p>
-            <div className="flex flex-col sm:flex-row items-center gap-3">
-              <button
-                type="button"
-                onClick={() => onNavigate("login")}
-                className="bg-[#C9A961] hover:bg-[#b8994f] text-white rounded-full px-8 py-3 font-semibold transition-colors"
-              >
-                Se connecter
-              </button>
-              <button
-                type="button"
-                onClick={() => onNavigate("login")}
-                className="border border-border bg-card rounded-full px-8 py-3 font-semibold text-foreground hover:border-[#C9A961] hover:text-[#C9A961] transition-colors"
-              >
-                Créer un compte
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => onNavigate("shop")}
+              className="inline-flex items-center justify-center gap-2 bg-[#C9A961] hover:bg-[#b8994f] text-white rounded-full px-8 py-3.5 font-semibold transition-colors"
+            >
+              Découvrir la boutique
+              <ArrowRight className="w-4 h-4" aria-hidden="true" />
+            </button>
           </div>
         </div>
       </div>

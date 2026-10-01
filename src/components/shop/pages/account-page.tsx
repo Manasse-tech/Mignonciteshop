@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import {
-  Download,
   Gift,
   History,
   Loader2,
@@ -512,32 +511,13 @@ export function AccountPage({ onNavigate }: { onNavigate: (page: string) => void
             </h2>
 
             <div className="space-y-2">
-              <h3 className="text-sm font-medium text-foreground">
-                Export de mes données
-              </h3>
-              <p className="text-xs text-muted-foreground">
-                Téléchargez au format JSON toutes les données vous concernant
-                (commandes, avis, messages, abonnement…) — droit à la
-                portabilité RGPD, article 20.
-              </p>
-              <a
-                href={api.account.exportUrl()}
-                download
-                className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium hover:bg-muted transition-colors"
-              >
-                <Download className="w-4 h-4" aria-hidden="true" />
-                Exporter mes données
-              </a>
-            </div>
-
-            <div className="space-y-2 pt-2 border-t">
               <h3 className="text-sm font-medium text-foreground text-red-600 dark:text-red-400">
                 Supprimer mon compte
               </h3>
               <p className="text-xs text-muted-foreground">
-                Efface définitivement vos données personnelles. Vos commandes
-                sont conservées de façon anonyme (obligation comptable),
-                sans aucun rattachement possible — article 17 RGPD.
+                Efface définitivement votre profil et vos préférences. Vos
+                commandes sont conservées (obligation comptable), sans aucune
+                réutilisation — article 17 RGPD.
               </p>
               <Button
                 variant="outline"
@@ -558,10 +538,10 @@ export function AccountPage({ onNavigate }: { onNavigate: (page: string) => void
           <DialogHeader>
             <DialogTitle>Supprimer définitivement votre compte ?</DialogTitle>
             <DialogDescription>
-              Cette action est <strong>irréversible</strong> : vos avis, alertes
-              et préférences seront effacés. Vous serez immédiatement
-              déconnecté(e). Vos commandes passées seront conservées de manière
-              anonyme (exigence comptable), sans aucune donnée personnelle.
+              Cette action est <strong>irréversible</strong> : votre profil et
+              vos préférences seront effacés. Vous serez immédiatement
+              déconnecté(e). Vos commandes passées seront conservées
+              (obligation comptable).
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

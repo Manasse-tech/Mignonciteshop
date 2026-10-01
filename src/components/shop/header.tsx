@@ -62,6 +62,20 @@ interface HeaderProps {
   onSearch: () => void;
 }
 
+/**
+ * Hiérarchie de navigation (mission §2 — AUCUN doublon) :
+ *
+ *  DESKTOP (lg+) : logo · liens de navigation · recherche · thème ·
+ *                  favoris · compte · fidélité · panier.
+ *  MOBILE (<lg)  : logo · PANIER · hamburger (le hamburger vit ici,
+ *                  jamais en bas).
+ *  BOTTOM NAV    : Accueil · Recherche · Mode nuit · Compte.
+ *
+ *  → recherche / thème / compte n'apparaissent QUE dans la bottom nav sur
+ *    mobile (jamais dans le header) ; favoris et fidélité vivent dans le
+ *    menu hamburger ; le panier reste dans le header (action e-commerce
+ *    principale, absente de la bottom nav).
+ */
 export function Header({ active, onNavigate, onSearch }: HeaderProps) {
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -74,7 +88,7 @@ export function Header({ active, onNavigate, onSearch }: HeaderProps) {
   const cartCount = useShopStore(selectCartCount);
   const { user, ready, hydrate, logout } = useAuthStore();
 
-  // Vérifie la session une seule fois au montage (cookie httpOnly côté serveur).
+  // Vérifie la session une seule fois au montage (état Firebase global).
   useEffect(() => {
     if (!ready) {
       void hydrate();
@@ -118,10 +132,10 @@ export function Header({ active, onNavigate, onSearch }: HeaderProps) {
     onNavigate("home");
   };
 
-  const accountButton = (size: "desktop" | "mobile") => {
-    const pad = size === "desktop" ? "p-1.5 min-[400px]:p-2" : "p-2.5";
-    const visibility = size === "desktop" ? "hidden min-[380px]:block" : "";
-    const triggerClass = `${pad} hover:bg-muted rounded-full transition-colors ${visibility}`;
+  /* ----------------------- Actions desktop (lg+) ----------------------- */
+
+  const accountButtonDesktop = () => {
+    const triggerClass = "p-2 hover:bg-muted rounded-full transition-colors";
 
     if (!user) {
       return (
@@ -182,74 +196,23 @@ export function Header({ active, onNavigate, onSearch }: HeaderProps) {
     );
   };
 
-  const actionButtons = (size: "desktop" | "mobile") => {
-    const pad = size === "desktop" ? "p-1.5 min-[400px]:p-2" : "p-2.5";
-    return (
-      <>
-        <button
-          type="button"
-          className={`${pad} hover:bg-muted rounded-full transition-colors ${
-            size === "desktop" ? "hidden min-[400px]:block" : ""
-          }`}
-          aria-label={isDark ? "Passer en mode clair" : "Passer en mode sombre"}
-          title={isDark ? "Mode clair" : "Mode sombre"}
-          onClick={() => setTheme(isDark ? "light" : "dark")}
-        >
-          {isDark ? (
-            <Sun aria-hidden="true" />
-          ) : (
-            <Moon aria-hidden="true" />
-          )}
-        </button>
-        <button
-          type="button"
-          className={`${pad} hover:bg-muted rounded-full transition-colors`}
-          aria-label="Rechercher"
-          onClick={() => {
-            setMobileOpen(false);
-            onSearch();
-          }}
-        >
-          <Search aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          className={`${pad} hover:bg-muted rounded-full transition-colors ${
-            size === "desktop" ? "hidden min-[420px]:block" : ""
-          }`}
-          aria-label="Mes favoris"
-          onClick={() => go("wishlist")}
-        >
-          <Heart aria-hidden="true" />
-        </button>
-        {accountButton(size)}
-        <button
-          type="button"
-          className={`${pad} hover:bg-muted rounded-full transition-colors ${
-            size === "desktop" ? "hidden min-[480px]:block" : ""
-          }`}
-          aria-label="Programme de fidélité"
-          title="Programme de fidélité"
-          onClick={handleLoyalty}
-        >
-          <Gift aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          className={`${pad} hover:bg-muted rounded-full transition-colors relative`}
-          aria-label="Mon panier"
-          onClick={() => go("cart")}
-        >
-          <ShoppingBag aria-hidden="true" />
-          {cartCount > 0 && (
-            <span className="absolute -top-1 -right-1 h-5 w-5 rounded-full bg-[#C9A961] text-white text-[10px] font-bold flex items-center justify-center">
-              {cartCount > 99 ? "99+" : cartCount}
-            </span>
-          )}
-        </button>
-      </>
-    );
-  };
+  const cartButton = (pad: string) => (
+    <button
+      type="button"
+      className={`${pad} hover:bg-muted rounded-full transition-colors relative`}
+      aria-label="Mon panier"
+      onClick={() => go("cart")}
+    >
+      <ShoppingBag aria-hidden="true" />
+      {cartCount > 0 && (
+        <span className="absolute -top-1 -right-1 h-5 w-5 rounded-full bg-[#C9A961] text-white text-[10px] font-bold flex items-center justify-center">
+          {cartCount > 99 ? "99+" : cartCount}
+        </span>
+      )}
+    </button>
+  );
+
+  /* ------------------------------ Rendu ------------------------------- */
 
   return (
     <header
@@ -273,6 +236,7 @@ export function Header({ active, onNavigate, onSearch }: HeaderProps) {
             </span>
           </button>
 
+          {/* Navigation desktop */}
           <nav
             className="hidden lg:flex items-center space-x-4 xl:space-x-10"
             aria-label="Navigation principale"
@@ -292,13 +256,61 @@ export function Header({ active, onNavigate, onSearch }: HeaderProps) {
             ))}
           </nav>
 
-          <div className="flex items-center space-x-0.5 sm:space-x-1.5 xl:space-x-3 max-[379px]:[&_svg]:w-[18px] max-[379px]:[&_svg]:h-[18px]">
-            {actionButtons("desktop")}
+          {/* Actions DESKTOP — complètes (recherche, thème, favoris, compte,
+              fidélité, panier). Cachées sur mobile : ces actions vivent en
+              bottom nav (recherche/thème/compte) ou dans le menu (favoris,
+              fidélité) pour éviter tout doublon. */}
+          <div className="hidden lg:flex items-center space-x-1.5 xl:space-x-3">
+            <button
+              type="button"
+              className="p-2 hover:bg-muted rounded-full transition-colors"
+              aria-label={isDark ? "Passer en mode clair" : "Passer en mode sombre"}
+              title={isDark ? "Mode clair" : "Mode sombre"}
+              onClick={() => setTheme(isDark ? "light" : "dark")}
+            >
+              {isDark ? <Sun aria-hidden="true" /> : <Moon aria-hidden="true" />}
+            </button>
+            <button
+              type="button"
+              className="p-2 hover:bg-muted rounded-full transition-colors"
+              aria-label="Rechercher"
+              onClick={() => {
+                setMobileOpen(false);
+                onSearch();
+              }}
+            >
+              <Search aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className="p-2 hover:bg-muted rounded-full transition-colors"
+              aria-label="Mes favoris"
+              onClick={() => go("wishlist")}
+            >
+              <Heart aria-hidden="true" />
+            </button>
+            {accountButtonDesktop()}
+            <button
+              type="button"
+              className="p-2 hover:bg-muted rounded-full transition-colors"
+              aria-label="Programme de fidélité"
+              title="Programme de fidélité"
+              onClick={handleLoyalty}
+            >
+              <Gift aria-hidden="true" />
+            </button>
+            {cartButton("p-2")}
+          </div>
+
+          {/* Actions MOBILE — panier uniquement + hamburger (les autres
+              actions sont dans la bottom nav / le menu, jamais dupliquées). */}
+          <div className="lg:hidden flex items-center space-x-0.5">
+            {cartButton("p-2.5")}
             <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
               <SheetTrigger asChild>
                 <button
                   type="button"
-                  className="lg:hidden p-1.5 min-[400px]:p-2"
+                  className="p-2.5"
                   aria-label="Ouvrir le menu"
                 >
                   <Menu aria-hidden="true" />
@@ -320,12 +332,67 @@ export function Header({ active, onNavigate, onSearch }: HeaderProps) {
                     </button>
                   ))}
                 </div>
+
+                {/* Mon compte — favoris / fidélité / session */}
                 <div className="mt-6 border-t border-border pt-5">
                   <p className="px-4 mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     Mon compte
                   </p>
-                  <div className="flex items-center justify-around px-2">
-                    {actionButtons("mobile")}
+                  <div className="flex flex-col gap-1 px-2">
+                    {user ? (
+                      <p className="px-2 py-1.5 text-sm truncate">
+                        <span className="font-semibold block truncate">
+                          {user.name ?? "Mon compte"}
+                        </span>
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {user.email}
+                        </span>
+                      </p>
+                    ) : (
+                      <button
+                        type="button"
+                        className="w-full text-left px-2 py-2.5 rounded-xl text-base font-medium transition-colors hover:bg-muted hover:text-[#C9A961]"
+                        onClick={() => go("login")}
+                      >
+                        Se connecter / Créer un compte
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="w-full text-left px-2 py-2.5 rounded-xl text-base font-medium transition-colors hover:bg-muted hover:text-[#C9A961] flex items-center gap-2.5"
+                      onClick={() => go("wishlist")}
+                    >
+                      <Heart className="w-4 h-4 text-[#C9A961]" aria-hidden="true" />
+                      Mes favoris
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full text-left px-2 py-2.5 rounded-xl text-base font-medium transition-colors hover:bg-muted hover:text-[#C9A961] flex items-center gap-2.5"
+                      onClick={handleLoyalty}
+                    >
+                      <Gift className="w-4 h-4 text-[#C9A961]" aria-hidden="true" />
+                      Programme de fidélité
+                    </button>
+                    {user?.role === "admin" && (
+                      <button
+                        type="button"
+                        className="w-full text-left px-2 py-2.5 rounded-xl text-base font-medium transition-colors hover:bg-muted hover:text-[#C9A961] flex items-center gap-2.5"
+                        onClick={() => go("admin")}
+                      >
+                        <Shield className="w-4 h-4 text-[#C9A961]" aria-hidden="true" />
+                        Espace admin
+                      </button>
+                    )}
+                    {user && (
+                      <button
+                        type="button"
+                        className="w-full text-left px-2 py-2.5 rounded-xl text-base font-medium transition-colors hover:bg-muted hover:text-destructive flex items-center gap-2.5"
+                        onClick={handleLogout}
+                      >
+                        <LogOut className="w-4 h-4" aria-hidden="true" />
+                        Déconnexion
+                      </button>
+                    )}
                   </div>
                 </div>
               </SheetContent>

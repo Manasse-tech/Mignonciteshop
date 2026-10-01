@@ -1,27 +1,24 @@
 "use client";
 
 /**
- * Réglages publics de la boutique (frais de livraison + seuil de gratuité)
- * côté client — estimation affichée panier/checkout.
+ * Réglages publics de la boutique (frais de livraison + seuil de gratuité +
+ * paiement mobile money) côté client — estimation affichée panier/checkout.
  *
- * Source : GET /api/settings (les réglages admin). Cache mémoire + sessionStorage
- * pour éviter les appels répétés ; valeurs par défaut en fallback (premier
- * rendu et hors-ligne). Le montant réellement débité reste recalculé serveur
- * dans POST /api/orders — cette estimation n'est jamais contractuelle.
+ * Source : document Firestore `settings/public` (piloté par l'admin — UNIQUE
+ * backend). Cache mémoire + sessionStorage pour éviter les lectures répétées ;
+ * valeurs par défaut en fallback (premier rendu et hors-ligne). Le montant
+ * réellement débité reste recalculé dans la transaction de commande — cette
+ * estimation n'est jamais contractuelle.
  */
 
 import { useEffect, useState } from "react";
-import { api, type StoreSettingsPublic } from "@/lib/api";
+import {
+  api,
+  SETTINGS_DEFAULTS,
+  type StoreSettingsPublic,
+} from "@/lib/api";
 
-export const DEFAULT_STORE_SETTINGS: StoreSettingsPublic = {
-  shipping: { standard: 4.99, express: 9.99, pickup: 2.99 },
-  freeShippingThreshold: 50,
-  payment: {
-    mobileMoneyEnabled: false,
-    mobileMoneyNumber: "",
-    instructions: "",
-  },
-};
+export { SETTINGS_DEFAULTS as DEFAULT_STORE_SETTINGS };
 
 const CACHE_KEY = "mc-settings:shipping";
 const CACHE_TTL_MS = 60_000;
@@ -43,7 +40,7 @@ function readSessionCache(): StoreSettingsPublic | null {
       // Shape normalisé (les anciens caches n'ont pas la clé « payment »).
       const normalized: StoreSettingsPublic = {
         ...parsed.data,
-        payment: parsed.data.payment ?? DEFAULT_STORE_SETTINGS.payment,
+        payment: parsed.data.payment ?? SETTINGS_DEFAULTS.payment,
       };
       memoryCache = { data: normalized, at: parsed.at };
       return normalized;
@@ -65,12 +62,12 @@ function writeSessionCache(data: StoreSettingsPublic): void {
 
 /**
  * Renvoie les réglages courants (défauts au premier rendu, puis valeurs
- * serveur dès que la requête aboutit — sans décalage d'hydratation car les
+ * Firestore dès que la lecture aboutit — sans décalage d'hydratation car les
  * valeurs par défaut sont identiques côté serveur).
  */
 export function useStoreSettings(): StoreSettingsPublic {
   const [settings, setSettings] = useState<StoreSettingsPublic>(() => {
-    return readSessionCache() ?? DEFAULT_STORE_SETTINGS;
+    return readSessionCache() ?? SETTINGS_DEFAULTS;
   });
 
   useEffect(() => {
@@ -82,7 +79,7 @@ export function useStoreSettings(): StoreSettingsPublic {
         // Tolérance aux anciens caches sessionStorage (shape sans « payment »).
         const normalized: StoreSettingsPublic = {
           ...data,
-          payment: data.payment ?? DEFAULT_STORE_SETTINGS.payment,
+          payment: data.payment ?? SETTINGS_DEFAULTS.payment,
         };
         writeSessionCache(normalized);
         setSettings(normalized);

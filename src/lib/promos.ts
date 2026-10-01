@@ -3,9 +3,10 @@ import type { PromoDefinition } from "@/lib/types";
 /**
  * Moteur de codes promo — partagé entre le panier et le checkout.
  *
- * En attendant le backend (model PromoCode en Prisma + GET /api/promos/validate),
- * les codes sont définis côté client. La logique de calcul sera déplacée
- * côté serveur lors du développement du backend (source de vérité unique).
+ * Source de vérité : la collection Firestore `promos` (gérée depuis l'admin).
+ * Les codes ci-dessous sont les codes de DÉMONSTRATION de démarrage :
+ * identiques à ceux créés par « Données initiales » dans l'admin, ils
+ * servent de repli si Firestore est momentanément indisponible.
  */
 export const PROMO_CODES: PromoDefinition[] = [
   {
@@ -45,9 +46,8 @@ export interface PromoValidationResult {
 }
 
 /**
- * Cache de session des codes validés côté serveur (ex: codes créés dans
- * l'espace admin). Permet à l'affichage panier/checkout de reconnaître un
- * code valide même s'il n'existe pas dans la liste locale. Persisté en
+ * Cache de session des codes validés (permet à l'affichage panier/checkout
+ * de reconnaître un code valide même sans relecture Firestore). Persisté en
  * sessionStorage pour survivre à la navigation (pas au changement d'onglet).
  */
 const remotePromoCache = new Map<string, PromoDefinition>();
@@ -84,13 +84,12 @@ function getKnownPromo(code: string): PromoDefinition | undefined {
 }
 
 /**
- * Validation SERVEUR d'un code promo (source de vérité — /api/promos/validate).
- * Le serveur vérifie existence, activité, expiration, plafond et minimum
- * d'achat, et renvoie la définition du code + la remise calculée.
+ * Validation d'un code promo — source de vérité : Firestore (collection
+ * `promos`, lue via la couche api). Vérifie existence, activité, expiration,
+ * plafond et minimum d'achat.
  *
- * Fallback : en cas d'indisponibilité réseau (status 0), on retombe sur la
- * validation locale (les codes seedés sont identiques) pour ne pas bloquer
- * un client ; la commande reste de toute façon revalidée côté serveur.
+ * Fallback : en cas d'indisponibilité réseau, on retombe sur la validation
+ * locale (codes de démonstration identiques) pour ne pas bloquer un client.
  */
 export async function validatePromoRemote(
   rawCode: string,
@@ -100,29 +99,22 @@ export async function validatePromoRemote(
   if (!code) return { ok: false, error: "Veuillez saisir un code." };
 
   try {
-    const res = await fetch("/api/promos/validate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code, subtotal }),
-    });
-    const data = (await res.json()) as {
-      ok: boolean;
-      error?: string;
-      promo?: PromoDefinition;
-    };
-    if (!data.ok || !data.promo) {
-      return { ok: false, error: data.error ?? "Ce code promo n'est pas valide." };
+    // Import dynamique : évite tout cycle de modules au chargement.
+    const { api } = await import("@/lib/api");
+    const result = await api.promos.validate(code, subtotal);
+    if (!result.ok || !result.promo) {
+      return { ok: false, error: result.error ?? "Ce code promo n'est pas valide." };
     }
-    cacheRemotePromo(data.promo);
-    return { ok: true, promo: data.promo };
+    cacheRemotePromo(result.promo);
+    return { ok: true, promo: result.promo };
   } catch {
-    // Serveur injoignable → fallback local (ne doit jamais casser l'UX).
+    // Firestore injoignable → fallback local (ne doit jamais casser l'UX).
     return validatePromo(rawCode, subtotal);
   }
 }
 
 /**
- * Valide un code connu (liste locale OU cache des codes validés serveur).
+ * Valide un code connu (liste locale OU cache des codes validés Firestore).
  * Utilisé pour l'affichage panier/checkout du code déjà stocké.
  */
 export function validatePromo(rawCode: string, subtotal: number): PromoValidationResult {

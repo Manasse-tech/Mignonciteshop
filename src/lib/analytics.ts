@@ -1,13 +1,19 @@
+"use client";
+
 /**
  * Fondation analytique — conventions « grandes entreprises ».
  *
- * Chaque action métier clé (vue produit, ajout panier, début de checkout,
- * achat…) émet un événement structuré, envoyé au backend via
- * navigator.sendBeacon (fallback fetch keepalive) puis persisté dans la
- * table AnalyticsEvent et consultable dans l'admin (Rapports → Activité).
+ * Chaque action métier clé (vue produit, ajout panier, checkout, achat…)
+ * émet un événement structuré, écrit directement dans la collection
+ * Firestore `analytics` (UNIQUE backend) et consultable dans l'admin
+ * (Rapports → Activité).
  *
- * Jamais bloquant : si l'envoi échoue, l'expérience utilisateur est intacte.
+ * Jamais bloquant : si l'écriture échoue, l'expérience utilisateur est
+ * intacte (les erreurs sont silencieuses).
  */
+
+import { addDoc, collection, serverTimestamp } from "firebase/firestore";
+import { fbDb } from "@/lib/firebase";
 
 export type AnalyticsEvent =
   | "page_view"
@@ -30,26 +36,6 @@ export interface AnalyticsPayload {
 
 const isDev = process.env.NODE_ENV !== "production";
 
-function dispatch(body: string): void {
-  try {
-    // sendBeacon survit au changement de page (idéal pour purchase/checkout).
-    if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
-      const blob = new Blob([body], { type: "application/json" });
-      if (navigator.sendBeacon("/api/analytics", blob)) return;
-    }
-    if (typeof fetch === "function") {
-      void fetch("/api/analytics", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body,
-        keepalive: true,
-      }).catch(() => undefined);
-    }
-  } catch {
-    // Ignoré volontairement.
-  }
-}
-
 function send(event: AnalyticsEvent, payload: AnalyticsPayload = {}): void {
   const { page, productId, value, ...rest } = payload as {
     page?: string;
@@ -61,13 +47,19 @@ function send(event: AnalyticsEvent, payload: AnalyticsPayload = {}): void {
     page: typeof page === "string" ? page : undefined,
     productId: typeof productId === "string" ? productId : undefined,
     value: typeof value === "number" && Number.isFinite(value) ? value : undefined,
-    meta: Object.keys(rest).length > 0 ? rest : undefined,
-    ts: new Date().toISOString(),
+    meta: Object.keys(rest).length > 0 ? JSON.stringify(rest) : "{}",
   };
   if (isDev) {
-    console.debug("[analytics]", entry);
+    console.debug("[analytics]", { ...entry, ts: new Date().toISOString() });
   }
-  dispatch(JSON.stringify(entry));
+  try {
+    void addDoc(collection(fbDb(), "analytics"), {
+      ...entry,
+      createdAt: serverTimestamp(),
+    }).catch(() => undefined);
+  } catch {
+    // Ignoré volontairement (l'analytique ne doit jamais casser l'UX).
+  }
 }
 
 export function trackPageView(page: string): void {

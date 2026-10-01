@@ -103,10 +103,11 @@ function ShopApp() {
   const shopCategory = searchParams.get("category") ?? undefined;
   const shopSearch = searchParams.get("q") ?? undefined;
 
-  const { products, categories, loading } = useCatalog();
+  const { products, categories, loading, error: catalogError } = useCatalog();
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [cookiesForceOpen, setCookiesForceOpen] = useState(false);
+  const [catalogBannerDismissed, setCatalogBannerDismissed] = useState(false);
   const [quickView, setQuickView] = useState<Product | null>(null);
 
   useEffect(() => {
@@ -285,6 +286,24 @@ function ShopApp() {
       />
       {/* Header compact mobile (56px) / desktop (80px) — pt aligné */}
       <main id="contenu" className="pt-14 sm:pt-20 flex-1 flex flex-col">
+        {/* Erreur de chargement du catalogue (Firestore indisponible…) —
+            bannière globale explicite au lieu d'un silence trompeur. */}
+        {catalogError && !catalogBannerDismissed && (
+          <div
+            role="alert"
+            className="mx-4 mt-4 mb-2 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive flex items-start justify-between gap-3"
+          >
+            <span className="min-w-0">{catalogError}</span>
+            <button
+              type="button"
+              onClick={() => setCatalogBannerDismissed(true)}
+              aria-label="Masquer le message d'erreur"
+              className="shrink-0 font-semibold hover:opacity-70"
+            >
+              ×
+            </button>
+          </div>
+        )}
         {content}
       </main>
       {/* Le padding-bottom du footer laisse la place à la bottom nav mobile
@@ -295,7 +314,11 @@ function ShopApp() {
           onOpenCookies={() => setCookiesForceOpen(true)}
         />
       </div>
-      <BottomNav active={headerActive} onNavigate={navigate} />
+      <BottomNav
+        active={headerActive}
+        onNavigate={navigate}
+        onSearch={() => setSearchOpen(true)}
+      />
       <ScrollUi />
       <SearchDialog
         products={products}
