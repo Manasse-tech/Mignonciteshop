@@ -545,3 +545,49 @@ Validation Error Count: 1
  GET /api/products 500 in 36ms (next.js: 11ms, application-code: 25ms)
  GET /api/categories 500 in 27ms (next.js: 10ms, application-code: 18ms)
  GET /api/auth/session 200 in 27ms (next.js: 22ms, application-code: 5ms)
+  Reload env: .env.development.local
+ GET / 200 in 304ms (next.js: 65ms, application-code: 239ms)
+ GET / 200 in 27ms (next.js: 4ms, application-code: 23ms)
+[browser] A tree hydrated but some attributes of the server rendered HTML didn't match the client properties. This won't be patched up. This can happen if a SSR-ed Client Component used:
+
+- A server/client branch `if (typeof window !== 'undefined')`.
+- Variable input such as `Date.now()` or `Math.random()` which changes each time it's called.
+- Date formatting in a user's locale which doesn't match the server.
+- External changing data without sending a snapshot of it along with the HTML.
+- Invalid HTML tag nesting.
+
+It can also happen if the client has a browser extension installed which messes with the HTML before React loaded.
+
+https://react.dev/link/hydration-mismatch
+
+  ...
+    <HotReload globalError={[...]} webSocket={WebSocket} staticIndicatorState={{pathname:null, ...}}>
+      <AppDevOverlayErrorBoundary globalError={[...]}>
+        <ReplaySsrOnlyErrors>
+        <DevRootHTTPAccessFallbackBoundary>
+          <HTTPAccessFallbackBoundary notFound={<NotAllowedRootHTTPFallbackError>}>
+            <HTTPAccessFallbackErrorBoundary pathname="/" notFound={<NotAllowedRootHTTPFallbackError>} ...>
+              <RedirectBoundary>
+                <RedirectErrorBoundary router={{...}}>
+                  <Head>
+                  <__next_root_layout_boundary__>
+                    <SegmentViewNode type="layout" pagePath="layout.tsx">
+                      <SegmentTrieNode>
+                      <link>
+                      <script>
+                      <script>
+                      <RootLayout>
+                        <html lang="fr" suppressHydrationWarning={true}>
+                          <head>
+                            <meta>
+                            <script
++                             type="application/ld+json"
+-                             type={null}
+                              dangerouslySetInnerHTML={{
++                               __html: "[{\"@context\":\"https://schema.org\",\"@type\":\"Organization\",\"name\":\"M..."
+-                               __html: "window.__V0_SANDBOX_ID__=\"sb-14rbeb56ja46\";window.__V0_CHAT_ID__=\"5GQTiWKN..."
+                              }}
+                            >
+                          ...
+                  ...
+ 

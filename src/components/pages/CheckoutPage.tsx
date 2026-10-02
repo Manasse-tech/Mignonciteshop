@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Check, CreditCard, Banknote, Wallet, Truck, Loader2, ShieldCheck, Zap, Store, MapPin, Gift, Sparkles, ArrowLeft, Tag, CheckCircle2 } from 'lucide-react'
+import { Check, Banknote, Wallet, Truck, Loader2, ShieldCheck, Zap, Store, MapPin, Gift, Sparkles, ArrowLeft, Tag, CheckCircle2, Smartphone } from 'lucide-react'
 import { useShopStore, cartSubtotal, cartCount, promoDiscount, SHIPPING_METHODS, type ShippingMethodId } from '@/store/useShopStore'
 import { useAdminAuthStore } from '@/store/useAdminAuthStore'
 import { formatPrice } from '@/lib/format'
@@ -39,7 +39,7 @@ export default function CheckoutPage() {
     city: '',
     postalCode: '',
     country: 'France',
-    paymentMethod: 'Carte',
+    paymentMethod: 'CinetPay',
     notes: '',
   })
 
@@ -195,6 +195,10 @@ export default function CheckoutPage() {
       })
       if (res.ok) {
         const order = await res.json()
+        if (order.paymentUrl) {
+          window.location.assign(order.paymentUrl)
+          return
+        }
         clearCart()
         // Purge du panier serveur (collection Cart) : sinon les articles
         // réapparaîtraient à la prochaine connexion sur un autre appareil.
@@ -215,9 +219,8 @@ export default function CheckoutPage() {
     'w-full h-11 px-3 rounded-lg border border-border bg-card text-sm focus:outline-none focus:border-[#C9A961] transition-colors'
 
   const PAYMENTS = [
-    { id: 'Carte', label: 'Carte bancaire', desc: 'Visa, Mastercard, American Express', icon: CreditCard },
-    { id: 'PayPal', label: 'PayPal', desc: 'Paiement via votre compte PayPal', icon: Wallet },
-    { id: 'Paiement à la livraison', label: 'Paiement à la livraison', desc: 'Espèces ou carte à la réception (+2 €)', icon: Banknote },
+    { id: 'CinetPay', label: 'Mobile Money — CinetPay', desc: 'Orange Money, MTN MoMo, Moov Money, Wave', icon: Smartphone },
+    { id: 'Paiement à la livraison', label: 'Paiement à la livraison', desc: 'Espèces à la réception', icon: Banknote },
   ]
 
   const SHIPPING_ICONS: Record<ShippingMethodId, typeof Truck> = {
@@ -327,7 +330,7 @@ export default function CheckoutPage() {
               {/* Mode de paiement (identique à l'original) */}
               <div className="bg-card rounded-2xl p-6 md:p-8 shadow-sm">
                 <h2 className="text-xl font-bold text-foreground mb-6 flex items-center gap-2">
-                  <CreditCard className="w-5 h-5 text-[#C9A961]" /> Mode de paiement
+                  <Smartphone className="w-5 h-5 text-[#C9A961]" /> Mode de paiement
                 </h2>
                 <div className="space-y-3">
                   {PAYMENTS.map((pm) => (

@@ -6,6 +6,7 @@ import { getSessionUserLive, unauthorized } from '@/lib/auth'
 import { clientKey, rateLimit, tooManyRequests } from '@/lib/rate-limit'
 import { ORDER_CREATE, firstIssue } from '@/lib/validators'
 import { sendEmail, orderConfirmationHtml } from '@/lib/email'
+import { createCinetPayPayment, isCinetPayConfigured } from '@/lib/cinetpay'
 import {
   listOrders,
   getProductsByIds,
@@ -146,6 +147,10 @@ export async function POST(req: NextRequest) {
     const shipping = computeShipping(method.id, subtotal, promoFreeShipping)
     const total = Math.max(0, Math.round((subtotal - promoDiscount - pointsDiscount) * 100) / 100 + shipping)
 
+    if (input.paymentMethod === 'CinetPay' && !isCinetPayConfigured()) {
+      return NextResponse.json({ error: 'Le paiement Mobile Money est momentanément indisponible.' }, { status: 503 })
+    }
+
     // 5. Transaction : stock contrôlé (jamais négatif) + commande + usage promo
     try {
       const order = await createOrderWithStock({
@@ -174,6 +179,19 @@ export async function POST(req: NextRequest) {
           return { productId: p.id, name: p.name, price: p.price, image: p.image, quantity: it.quantity }
         }),
       })
+
+      let paymentUrl: string | undefined
+      if (input.paymentMethod === 'CinetPay') {
+        const payment = await createCinetPayPayment({
+          transactionId: order.orderNumber,
+          amount: order.total * 655.957,
+          description: `Commande ${order.orderNumber} — MignonciteShop`,
+          customerName: order.customerName,
+          customerEmail: order.customerEmail,
+          customerPhone: order.phone || '',
+        })
+        paymentUrl = payment.payment_url
+      }
 
       // Notification temps réel vers l'admin (fire-and-forget, jamais bloquant)
       emitAdminEvent({
@@ -209,7 +227,7 @@ export async function POST(req: NextRequest) {
         orderId: order.id,
       }).catch((e) => console.error('[email] confirmation commande:', e))
 
-      return NextResponse.json(order, { status: 201 })
+      return NextResponse.json({ ...order, paymentUrl }, { status: 201 })
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       if (msg.startsWith('STOCK:')) {
