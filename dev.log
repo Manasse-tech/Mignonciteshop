@@ -274,3 +274,274 @@ Validation Error Count: 1
  GET /api/products 500 in 20ms (next.js: 7ms, application-code: 13ms)
  GET /api/auth/session 200 in 23ms (next.js: 20ms, application-code: 3ms)
   Reload env: .env.development.local
+ GET / 200 in 250ms (next.js: 60ms, application-code: 190ms)
+ GET / 200 in 57ms (next.js: 8ms, application-code: 48ms)
+  Reload env: .env.development.local
+ GET / 200 in 186ms (next.js: 86ms, application-code: 100ms)
+ GET / 200 in 438ms (next.js: 4ms, application-code: 434ms)
+[auth] AUTH_SECRET manquant — sessions non persistantes (mode dev)
+ GET /api/auth/session 200 in 48ms (next.js: 35ms, application-code: 12ms)
+ GET /api/auth/session 200 in 8ms (next.js: 3ms, application-code: 5ms)
+ GET /api/auth/session 200 in 9ms (next.js: 5ms, application-code: 5ms)
+ GET /api/auth/session 200 in 64ms (next.js: 59ms, application-code: 5ms)
+GET /api/categories error: Error [PrismaClientInitializationError]: 
+Invalid `__TURBOPACK__imported__module__$5b$project$5d2f$lib$2f$db$2e$ts__$5b$app$2d$route$5d$__$28$ecmascript$29$__["db"].category.findMany()` invocation in
+/vercel/share/v0-project/.next/dev/server/chunks/[root-of-the-server]__1fvu4k_._.js:749:147
+
+  746             productCount: products.filter((p)=>p.categoryId === c.id).length
+  747         }));
+  748 }
+→ 749 const cats = await __TURBOPACK__imported__module__$5b$project$5d2f$lib$2f$db$2e$ts__$5b$app$2d$route$5d$__$28$ecmascript$29$__["db"].category.findMany(
+error: Environment variable not found: DATABASE_URL.
+  -->  schema.prisma:7
+   | 
+ 6 |   provider = "sqlite"
+ 7 |   url      = env("DATABASE_URL")
+   | 
+
+Validation Error Count: 1
+    at <unknown> (lib/backend.ts:517:34)
+    at <unknown> (-->  schema.prisma:7)
+    at async listCategories (lib/backend.ts:517:16)
+    at async GET (app/api/categories/route.ts:7:24)
+  515 |     return rows.map((c) => ({ ...c, productCount: products.filter((p) => p.categoryId === c.id).length }))
+  516 |   }
+> 517 |   const cats = await db.category.findMany({
+      |                                  ^
+  518 |     orderBy: { order: 'asc' },
+  519 |     include: { _count: { select: { products: true } } },
+  520 |   }) {
+  clientVersion: '6.19.3',
+  errorCode: undefined,
+  retryable: undefined
+}
+ GET /api/categories 500 in 166ms (next.js: 47ms, application-code: 119ms)
+GET /api/products error: Error [PrismaClientInitializationError]: 
+Invalid `__TURBOPACK__imported__module__$5b$project$5d2f$lib$2f$db$2e$ts__$5b$app$2d$route$5d$__$28$ecmascript$29$__["db"].product.findMany()` invocation in
+/vercel/share/v0-project/.next/dev/server/chunks/[root-of-the-server]__1fvu4k_._.js:966:146
+
+  963         reviewCount: 'desc'
+  964     }
+  965 ];
+→ 966 const rows = await __TURBOPACK__imported__module__$5b$project$5d2f$lib$2f$db$2e$ts__$5b$app$2d$route$5d$__$28$ecmascript$29$__["db"].product.findMany(
+error: Environment variable not found: DATABASE_URL.
+  -->  schema.prisma:7
+   | 
+ 6 |   provider = "sqlite"
+ 7 |   url      = env("DATABASE_URL")
+   | 
+
+Validation Error Count: 1
+    at <unknown> (lib/backend.ts:688:33)
+    at <unknown> (-->  schema.prisma:7)
+    at async listProducts (lib/backend.ts:688:16)
+    at async GET (app/api/products/route.ts:8:22)
+  686 |   else if (f.sort === 'rating') orderBy = [{ rating: 'desc' }, { reviewCount: 'desc' }]
+  687 |   else if (f.sort === 'sold') orderBy = [{ soldCount: 'desc' }, { reviewCount: 'desc' }]
+> 688 |   const rows = await db.product.findMany({ where, orderBy, include: { category: true } })
+      |                                 ^
+  689 |   return rows.map((p) => ({
+  690 |     ...p,
+  691 |     createdAt: iso(p.createdAt), {
+  clientVersion: '6.19.3',
+  errorCode: undefined,
+  retryable: undefined
+}
+ GET /api/products 500 in 228ms (next.js: 147ms, application-code: 81ms)
+GET /api/categories error: Error [PrismaClientInitializationError]: 
+Invalid `__TURBOPACK__imported__module__$5b$project$5d2f$lib$2f$db$2e$ts__$5b$app$2d$route$5d$__$28$ecmascript$29$__["db"].category.findMany()` invocation in
+/vercel/share/v0-project/.next/dev/server/chunks/[root-of-the-server]__1fvu4k_._.js:749:147
+
+  746             productCount: products.filter((p)=>p.categoryId === c.id).length
+  747         }));
+  748 }
+→ 749 const cats = await __TURBOPACK__imported__module__$5b$project$5d2f$lib$2f$db$2e$ts__$5b$app$2d$route$5d$__$28$ecmascript$29$__["db"].category.findMany(
+error: Environment variable not found: DATABASE_URL.
+  -->  schema.prisma:7
+   | 
+ 6 |   provider = "sqlite"
+ 7 |   url      = env("DATABASE_URL")
+   | 
+
+Validation Error Count: 1
+    at <unknown> (lib/backend.ts:517:34)
+    at <unknown> (-->  schema.prisma:7)
+    at async listCategories (lib/backend.ts:517:16)
+    at async GET (app/api/categories/route.ts:7:24)
+  515 |     return rows.map((c) => ({ ...c, productCount: products.filter((p) => p.categoryId === c.id).length }))
+  516 |   }
+> 517 |   const cats = await db.category.findMany({
+      |                                  ^
+  518 |     orderBy: { order: 'asc' },
+  519 |     include: { _count: { select: { products: true } } },
+  520 |   }) {
+  clientVersion: '6.19.3',
+  errorCode: undefined,
+  retryable: undefined
+}
+ GET /api/categories 500 in 16ms (next.js: 3ms, application-code: 13ms)
+GET /api/products error: Error [PrismaClientInitializationError]: 
+Invalid `__TURBOPACK__imported__module__$5b$project$5d2f$lib$2f$db$2e$ts__$5b$app$2d$route$5d$__$28$ecmascript$29$__["db"].product.findMany()` invocation in
+/vercel/share/v0-project/.next/dev/server/chunks/[root-of-the-server]__1fvu4k_._.js:966:146
+
+  963         reviewCount: 'desc'
+  964     }
+  965 ];
+→ 966 const rows = await __TURBOPACK__imported__module__$5b$project$5d2f$lib$2f$db$2e$ts__$5b$app$2d$route$5d$__$28$ecmascript$29$__["db"].product.findMany(
+error: Environment variable not found: DATABASE_URL.
+  -->  schema.prisma:7
+   | 
+ 6 |   provider = "sqlite"
+ 7 |   url      = env("DATABASE_URL")
+   | 
+
+Validation Error Count: 1
+    at <unknown> (lib/backend.ts:688:33)
+    at <unknown> (-->  schema.prisma:7)
+    at async listProducts (lib/backend.ts:688:16)
+    at async GET (app/api/products/route.ts:8:22)
+  686 |   else if (f.sort === 'rating') orderBy = [{ rating: 'desc' }, { reviewCount: 'desc' }]
+  687 |   else if (f.sort === 'sold') orderBy = [{ soldCount: 'desc' }, { reviewCount: 'desc' }]
+> 688 |   const rows = await db.product.findMany({ where, orderBy, include: { category: true } })
+      |                                 ^
+  689 |   return rows.map((p) => ({
+  690 |     ...p,
+  691 |     createdAt: iso(p.createdAt), {
+  clientVersion: '6.19.3',
+  errorCode: undefined,
+  retryable: undefined
+}
+ GET /api/products 500 in 14ms (next.js: 3ms, application-code: 11ms)
+ GET / 200 in 94ms (next.js: 5ms, application-code: 89ms)
+ GET /api/auth/session 200 in 10ms (next.js: 2ms, application-code: 7ms)
+GET /api/products error: Error [PrismaClientInitializationError]: 
+Invalid `__TURBOPACK__imported__module__$5b$project$5d2f$lib$2f$db$2e$ts__$5b$app$2d$route$5d$__$28$ecmascript$29$__["db"].product.findMany()` invocation in
+/vercel/share/v0-project/.next/dev/server/chunks/[root-of-the-server]__1fvu4k_._.js:966:146
+
+  963         reviewCount: 'desc'
+  964     }
+  965 ];
+→ 966 const rows = await __TURBOPACK__imported__module__$5b$project$5d2f$lib$2f$db$2e$ts__$5b$app$2d$route$5d$__$28$ecmascript$29$__["db"].product.findMany(
+error: Environment variable not found: DATABASE_URL.
+  -->  schema.prisma:7
+   | 
+ 6 |   provider = "sqlite"
+ 7 |   url      = env("DATABASE_URL")
+   | 
+
+Validation Error Count: 1
+    at <unknown> (lib/backend.ts:688:33)
+    at <unknown> (-->  schema.prisma:7)
+    at async listProducts (lib/backend.ts:688:16)
+    at async GET (app/api/products/route.ts:8:22)
+  686 |   else if (f.sort === 'rating') orderBy = [{ rating: 'desc' }, { reviewCount: 'desc' }]
+  687 |   else if (f.sort === 'sold') orderBy = [{ soldCount: 'desc' }, { reviewCount: 'desc' }]
+> 688 |   const rows = await db.product.findMany({ where, orderBy, include: { category: true } })
+      |                                 ^
+  689 |   return rows.map((p) => ({
+  690 |     ...p,
+  691 |     createdAt: iso(p.createdAt), {
+  clientVersion: '6.19.3',
+  errorCode: undefined,
+  retryable: undefined
+}
+GET /api/categories error: Error [PrismaClientInitializationError]: 
+Invalid `__TURBOPACK__imported__module__$5b$project$5d2f$lib$2f$db$2e$ts__$5b$app$2d$route$5d$__$28$ecmascript$29$__["db"].category.findMany()` invocation in
+/vercel/share/v0-project/.next/dev/server/chunks/[root-of-the-server]__1fvu4k_._.js:749:147
+
+  746             productCount: products.filter((p)=>p.categoryId === c.id).length
+  747         }));
+  748 }
+→ 749 const cats = await __TURBOPACK__imported__module__$5b$project$5d2f$lib$2f$db$2e$ts__$5b$app$2d$route$5d$__$28$ecmascript$29$__["db"].category.findMany(
+error: Environment variable not found: DATABASE_URL.
+  -->  schema.prisma:7
+   | 
+ 6 |   provider = "sqlite"
+ 7 |   url      = env("DATABASE_URL")
+   | 
+
+Validation Error Count: 1
+    at <unknown> (lib/backend.ts:517:34)
+    at <unknown> (-->  schema.prisma:7)
+    at async listCategories (lib/backend.ts:517:16)
+    at async GET (app/api/categories/route.ts:7:24)
+  515 |     return rows.map((c) => ({ ...c, productCount: products.filter((p) => p.categoryId === c.id).length }))
+  516 |   }
+> 517 |   const cats = await db.category.findMany({
+      |                                  ^
+  518 |     orderBy: { order: 'asc' },
+  519 |     include: { _count: { select: { products: true } } },
+  520 |   }) {
+  clientVersion: '6.19.3',
+  errorCode: undefined,
+  retryable: undefined
+}
+ GET /api/products 500 in 24ms (next.js: 3ms, application-code: 21ms)
+ GET /api/categories 500 in 23ms (next.js: 8ms, application-code: 15ms)
+ GET /api/auth/session 200 in 25ms (next.js: 21ms, application-code: 4ms)
+ GET /api/auth/session 200 in 19ms (next.js: 14ms, application-code: 5ms)
+GET /api/products error: Error [PrismaClientInitializationError]: 
+Invalid `__TURBOPACK__imported__module__$5b$project$5d2f$lib$2f$db$2e$ts__$5b$app$2d$route$5d$__$28$ecmascript$29$__["db"].product.findMany()` invocation in
+/vercel/share/v0-project/.next/dev/server/chunks/[root-of-the-server]__1fvu4k_._.js:966:146
+
+  963         reviewCount: 'desc'
+  964     }
+  965 ];
+→ 966 const rows = await __TURBOPACK__imported__module__$5b$project$5d2f$lib$2f$db$2e$ts__$5b$app$2d$route$5d$__$28$ecmascript$29$__["db"].product.findMany(
+error: Environment variable not found: DATABASE_URL.
+  -->  schema.prisma:7
+   | 
+ 6 |   provider = "sqlite"
+ 7 |   url      = env("DATABASE_URL")
+   | 
+
+Validation Error Count: 1
+    at <unknown> (lib/backend.ts:688:33)
+    at <unknown> (-->  schema.prisma:7)
+    at async listProducts (lib/backend.ts:688:16)
+    at async GET (app/api/products/route.ts:8:22)
+  686 |   else if (f.sort === 'rating') orderBy = [{ rating: 'desc' }, { reviewCount: 'desc' }]
+  687 |   else if (f.sort === 'sold') orderBy = [{ soldCount: 'desc' }, { reviewCount: 'desc' }]
+> 688 |   const rows = await db.product.findMany({ where, orderBy, include: { category: true } })
+      |                                 ^
+  689 |   return rows.map((p) => ({
+  690 |     ...p,
+  691 |     createdAt: iso(p.createdAt), {
+  clientVersion: '6.19.3',
+  errorCode: undefined,
+  retryable: undefined
+}
+GET /api/categories error: Error [PrismaClientInitializationError]: 
+Invalid `__TURBOPACK__imported__module__$5b$project$5d2f$lib$2f$db$2e$ts__$5b$app$2d$route$5d$__$28$ecmascript$29$__["db"].category.findMany()` invocation in
+/vercel/share/v0-project/.next/dev/server/chunks/[root-of-the-server]__1fvu4k_._.js:749:147
+
+  746             productCount: products.filter((p)=>p.categoryId === c.id).length
+  747         }));
+  748 }
+→ 749 const cats = await __TURBOPACK__imported__module__$5b$project$5d2f$lib$2f$db$2e$ts__$5b$app$2d$route$5d$__$28$ecmascript$29$__["db"].category.findMany(
+error: Environment variable not found: DATABASE_URL.
+  -->  schema.prisma:7
+   | 
+ 6 |   provider = "sqlite"
+ 7 |   url      = env("DATABASE_URL")
+   | 
+
+Validation Error Count: 1
+    at <unknown> (lib/backend.ts:517:34)
+    at <unknown> (-->  schema.prisma:7)
+    at async listCategories (lib/backend.ts:517:16)
+    at async GET (app/api/categories/route.ts:7:24)
+  515 |     return rows.map((c) => ({ ...c, productCount: products.filter((p) => p.categoryId === c.id).length }))
+  516 |   }
+> 517 |   const cats = await db.category.findMany({
+      |                                  ^
+  518 |     orderBy: { order: 'asc' },
+  519 |     include: { _count: { select: { products: true } } },
+  520 |   }) {
+  clientVersion: '6.19.3',
+  errorCode: undefined,
+  retryable: undefined
+}
+ GET /api/products 500 in 36ms (next.js: 11ms, application-code: 25ms)
+ GET /api/categories 500 in 27ms (next.js: 10ms, application-code: 18ms)
+ GET /api/auth/session 200 in 27ms (next.js: 22ms, application-code: 5ms)
