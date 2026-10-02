@@ -80,9 +80,9 @@ export async function POST(req: NextRequest) {
   try {
     if (!rateLimit(clientKey(req, 'orders-post'), 10)) return tooManyRequests()
 
-    // Le paiement à la livraison peut être utilisé sans créer de compte.
-    // Les paiements CinetPay restent réservés aux comptes authentifiés.
+    // Toute commande doit être liée à un compte client pour permettre le suivi.
     const user = await getSessionUserLive(req)
+    if (!user) return unauthorized()
 
     const body = await req.json().catch(() => null)
     const parsed = ORDER_CREATE.safeParse(body)
@@ -90,10 +90,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: firstIssue(parsed) }, { status: 400 })
     }
     const input = parsed.data
-    if (!user && input.paymentMethod !== 'Paiement à la livraison') {
-      return unauthorized()
-    }
-
     // 1. Re-pricing : prix réels depuis la base (Firebase ou SQLite)
     const ids = [...new Set(input.items.map((i) => i.productId))]
     const products = (await getProductsByIds(ids)).filter((p) => p.isActive)

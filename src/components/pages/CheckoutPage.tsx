@@ -38,7 +38,7 @@ export default function CheckoutPage() {
     city: '',
     postalCode: '',
     country: 'France',
-    paymentMethod: 'CinetPay',
+    paymentMethod: 'Paiement à la livraison',
     notes: '',
   })
 
@@ -122,8 +122,7 @@ export default function CheckoutPage() {
     }
   }
 
-  // Le paiement à la livraison est disponible sans compte. Les comptes connectés
-  // conservent la fidélité et l'historique synchronisés.
+  // Chaque commande est rattachée au compte client pour le suivi et l'historique.
   if (sessionStatus === 'loading') {
     return (
       <div className="min-h-[50vh] flex items-center justify-center" role="status" aria-live="polite">
@@ -210,8 +209,7 @@ export default function CheckoutPage() {
     'w-full h-11 px-3 rounded-lg border border-border bg-card text-sm focus:outline-none focus:border-[#C9A961] transition-colors'
 
   const PAYMENTS = [
-    { id: 'CinetPay', label: 'Mobile Money — CinetPay', desc: 'Orange Money, MTN MoMo, Moov Money, Wave', icon: Smartphone },
-    { id: 'Paiement à la livraison', label: 'Paiement à la livraison', desc: 'Espèces à la réception', icon: Banknote },
+    { id: 'Paiement à la livraison', label: 'Paiement à la livraison', desc: 'Espèces à la réception — Côte d’Ivoire', icon: Banknote },
   ]
 
   const SHIPPING_ICONS: Record<ShippingMethodId, typeof Truck> = {
@@ -321,7 +319,7 @@ export default function CheckoutPage() {
               {/* Mode de paiement (identique à l'original) */}
               <div className="bg-card rounded-2xl p-6 md:p-8 shadow-sm">
                 <h2 className="text-xl font-bold text-foreground mb-6 flex items-center gap-2">
-                  <Smartphone className="w-5 h-5 text-[#C9A961]" /> Mode de paiement
+                    <Banknote className="w-5 h-5 text-[#C9A961]" /> Mode de paiement
                 </h2>
                 <div className="space-y-3">
                   {PAYMENTS.map((pm) => (
@@ -355,8 +353,7 @@ export default function CheckoutPage() {
                 <div className="mt-6 flex items-start gap-3 bg-muted/50 rounded-xl p-4">
                   <ShieldCheck className="w-5 h-5 text-[#C9A961] flex-shrink-0 mt-0.5" />
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    Vos transactions sont protégées par un cryptage SSL 256 bits. C&apos;est une boutique de démonstration :
-                    aucun paiement réel n&apos;est effectué.
+                    Votre commande est confirmée après validation de vos informations. Le paiement se fait en espèces à la livraison, en Côte d&apos;Ivoire.
                   </p>
                 </div>
               </div>
