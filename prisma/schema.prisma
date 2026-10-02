@@ -1,0 +1,227 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String     @id @default(cuid())
+  email           String     @unique
+  passwordHash    String
+  name            String     @default("Administrateur")
+  role            String     @default("admin") // 'admin' | 'user'
+  supabaseUserId  String?    @unique // UID Supabase Auth (miroir) — lien RLS auth.uid()
+  orders          Order[]    // comptes clients : historique rattaché (invités historiques → userId null)
+  reviews         Review[]
+  cartItems       CartItem[] // collection Cart (5ᵉ collection de l'original Base44)
+  resetTokens     PasswordResetToken[]
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+}
+
+model Category {
+  id          String    @id @default(cuid())
+  name        String    @unique
+  slug        String    @unique
+  description String?
+  image       String?
+  order       Int       @default(0)
+  products    Product[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Product {
+  id          String      @id @default(cuid())
+  name        String
+  slug        String      @unique
+  description String?
+  details     String?
+  price       Float
+  oldPrice    Float?
+  image       String
+  gallery     String?     @default("[]")
+  categoryId  String?
+  category    Category?   @relation(fields: [categoryId], references: [id])
+  stock       Int         @default(0)
+  rating      Float       @default(4)
+  reviewCount Int         @default(0)
+  soldCount   Int         @default(0)
+  isFeatured  Boolean     @default(false)
+  isNew       Boolean     @default(false)
+  isActive    Boolean     @default(true)
+  sizes       String?     @default("[]")
+  colors      String?     @default("[]")
+  reviews     Review[]
+  questions   ProductQuestion[]
+  orderItems  OrderItem[]
+  cartItems   CartItem[]
+  priceHistory PriceHistory[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+}
+
+model Order {
+  id             String      @id @default(cuid())
+  orderNumber    String      @unique
+  userId         String?     // compte client propriétaire (null = commande invité historique)
+  user           User?       @relation(fields: [userId], references: [id])
+  customerName   String
+  customerEmail  String
+  phone          String?
+  address        String
+  city           String
+  postalCode     String?
+  country        String      @default("France")
+  paymentMethod  String      @default("card")
+  shippingMethod String      @default("standard")
+  subtotal       Float
+  shipping       Float       @default(0)
+  discount       Float       @default(0)
+  promoCode      String?
+  total          Float
+  status         String      @default("confirmee")
+  pointsUsed     Int         @default(0)
+  notes          String?
+  items          OrderItem[]
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  @@index([userId])
+}
+
+model OrderItem {
+  id        String   @id @default(cuid())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id])
+  name      String
+  price     Float
+  image     String?
+  quantity  Int      @default(1)
+}
+
+model Review {
+  id           String   @id @default(cuid())
+  productId    String
+  product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userId       String?  // auteur connecté (avis des comptes clients)
+  user         User?    @relation(fields: [userId], references: [id])
+  author       String
+  email        String?
+  rating       Int      @default(5)
+  title        String?
+  content      String
+  status       String   @default("pending")
+  helpfulCount Int      @default(0)
+  photos       String?  @default("[]")
+  createdAt    DateTime @default(now())
+}
+
+model ContactMessage {
+  id        String   @id @default(cuid())
+  name      String
+  email     String
+  subject   String?
+  message   String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model NewsletterSubscriber {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  createdAt DateTime @default(now())
+}
+
+model PromoCode {
+  id         String    @id @default(cuid())
+  code       String    @unique
+  type       String    @default("percent") // percent | fixed | shipping
+  value      Float     @default(0)
+  label      String
+  active     Boolean   @default(true)
+  usageCount Int       @default(0)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
+model ProductQuestion {
+  id           String    @id @default(cuid())
+  productId    String
+  product      Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  author       String
+  question     String
+  answer       String?
+  status       String    @default("pending") // pending | answered | hidden
+  helpfulCount Int       @default(0)
+  answeredAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+// Collection Cart de l'original Base44 (5ᵉ collection) : panier persisté par compte.
+// Un variant (taille/couleur) = une ligne ; variantKey = "taille|couleur" ("|" si absents).
+model CartItem {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId  String
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variantKey String   @default("|")
+  quantity   Int      @default(1)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([userId, productId, variantKey])
+}
+
+model PriceHistory {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  price     Float
+  oldPrice  Float?
+  createdAt DateTime @default(now())
+
+  @@index([productId, createdAt])
+}
+
+// Journal des emails transactionnels. Mode outbox (dev/sans clé) : l'email est
+// stocké ici et consultable dans l'admin ; mode Resend (RESEND_API_KEY définie) :
+// envoyé réellement, avec traçabilité du statut et des erreurs provider.
+model EmailLog {
+  id        String    @id @default(cuid())
+  to        String
+  subject   String
+  template  String // 'order-confirmation' | 'password-reset'
+  status    String    @default("pending") // sent | outbox | failed
+  provider  String    @default("outbox") // resend | outbox
+  error     String?
+  orderId   String?
+  userId    String?
+  html      String    @default("")
+  createdAt DateTime  @default(now())
+  sentAt    DateTime?
+
+  @@index([createdAt])
+}
+
+// Jeton de réinitialisation de mot de passe : seul le SHA-256 du jeton est
+// stocké (une fuite de la base ne permet pas de réutiliser les liens).
+// Expiration 30 min, usage unique (usedAt), jetons précédents invalidés.
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}

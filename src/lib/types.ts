@@ -1,144 +1,192 @@
 export interface Category {
-  id: string;
-  name: string;
-  slug: string;
-  description: string;
-  image: string;
-  order: number;
-  productCount?: number;
-  createdAt: string;
-  updatedAt: string;
+  id: string
+  name: string
+  slug: string
+  description?: string | null
+  image?: string | null
+  order: number
+  productCount?: number
 }
 
 export interface Product {
-  id: string;
-  name: string;
-  slug: string;
-  description: string;
-  details: string;
-  price: number;
-  oldPrice: number | null;
-  image: string;
-  gallery: string; // JSON string: string[]
-  categoryId: string;
-  stock: number;
-  rating: number;
-  reviewCount: number;
-  soldCount: number;
-  isFeatured: boolean;
-  isNew: boolean;
-  isActive: boolean;
-  sizes: string; // JSON string: string[]
-  colors: string; // JSON string: string[]
-  createdAt: string;
-  updatedAt: string;
-  category: Category;
+  id: string
+  name: string
+  slug: string
+  description?: string | null
+  details?: string | null
+  price: number
+  oldPrice?: number | null
+  image: string
+  gallery: string
+  categoryId?: string | null
+  category?: Category | null
+  stock: number
+  rating: number
+  reviewCount: number
+  soldCount?: number
+  isFeatured: boolean
+  isNew: boolean
+  isActive: boolean
+  sizes: string
+  colors: string
 }
 
-export interface CartItem {
-  productId: string;
-  name: string;
-  price: number;
-  oldPrice: number | null;
-  image: string;
-  quantity: number;
-  size: string | null;
-  color: string | null;
+export interface OrderItem {
+  id: string
+  productId?: string | null
+  name: string
+  price: number
+  image?: string | null
+  quantity: number
 }
 
-export type PageKey =
-  | "home"
-  | "shop"
-  | "cart"
-  | "categories"
-  | "promotions"
-  | "about"
-  | "contact"
-  | "login"
-  | "account"
-  | "checkout"
-  | "product"
-  | "wishlist"
-  | "faq"
-  | "tracking"
-  | "cgv"
-  | "privacy"
-  | "legal"
-  | "admin"
-  | "404";
-
-export const GOLD = "#C9A961";
-
-// ---------------------------------------------------------------------------
-// Avis clients
-// ---------------------------------------------------------------------------
+export interface Order {
+  id: string
+  orderNumber: string
+  customerName: string
+  customerEmail: string
+  phone?: string | null
+  address: string
+  city: string
+  postalCode?: string | null
+  country: string
+  paymentMethod: string
+  shippingMethod?: string
+  subtotal: number
+  shipping: number
+  discount: number
+  promoCode?: string | null
+  total: number
+  status: string
+  pointsUsed?: number
+  notes?: string | null
+  items: OrderItem[]
+  createdAt: string
+}
 
 export interface Review {
-  id: string;
-  productId: string;
-  author: string;
-  rating: number;
-  title?: string | null;
-  comment: string;
-  createdAt: string;
+  id: string
+  productId: string
+  author: string
+  email?: string | null
+  rating: number
+  title?: string | null
+  content: string
+  status: string
+  helpfulCount?: number
+  photos?: string
+  createdAt: string
+  product?: { id: string; name: string; image: string } | null
 }
 
-// ---------------------------------------------------------------------------
-// Code promo (moteur partagé panier / checkout — voir src/lib/promos.ts)
-// ---------------------------------------------------------------------------
-
-export type PromoType = "percent" | "freeship" | "amount";
-
-export interface PromoDefinition {
-  code: string;
-  label: string;
-  type: PromoType;
-  value: number;
-  minSubtotal: number;
+export interface ContactMessage {
+  id: string
+  name: string
+  email: string
+  subject?: string | null
+  message: string
+  isRead: boolean
+  createdAt: string
 }
 
-// ---------------------------------------------------------------------------
-// Tunnel de commande (checkout) — snapshot envoyé au futur POST /api/orders
-// ---------------------------------------------------------------------------
-
-export type ShippingMethod = "standard" | "express" | "pickup";
-
-export interface ShippingOption {
-  id: ShippingMethod;
-  label: string;
-  description: string;
-  price: number;
-  eta: string;
+export interface PromoCode {
+  id: string
+  code: string
+  type: 'percent' | 'fixed' | 'shipping'
+  value: number
+  label: string
+  active: boolean
+  usageCount: number
+  createdAt: string
 }
 
-export interface CheckoutContact {
-  email: string;
-  firstName: string;
-  lastName: string;
-  phone: string;
+export interface ProductQuestion {
+  id: string
+  productId: string
+  author: string
+  question: string
+  answer?: string | null
+  status: string
+  helpfulCount?: number
+  answeredAt?: string | null
+  createdAt: string
+  product?: { id: string; name: string; image: string } | null
 }
 
-export interface CheckoutAddress {
-  line1: string;
-  line2: string;
-  postalCode: string;
-  city: string;
-  country: string;
+export interface ActivityEvent {
+  id: string
+  type: 'order' | 'message' | 'review' | 'question'
+  title: string
+  detail: string
+  createdAt: string
+  href: string
 }
 
-export interface OrderSnapshot {
-  reference: string;
-  email: string;
-  customerName: string;
-  items: CartItem[];
-  subtotal: number;
-  discount: number;
-  shippingCost: number;
-  total: number;
-  promoCode: string | null;
-  shippingMethod: ShippingMethod;
-  address: CheckoutAddress;
-  createdAt: string;
-  /** Méthode choisie au checkout (card = passerelle démo, mobile_money = règlement externe). */
-  paymentMethod?: "card" | "paypal" | "transfer" | "mobile_money";
+export interface Stats {
+  totalRevenue: number
+  ordersCount: number
+  productsCount: number
+  categoriesCount: number
+  pendingReviews: number
+  lowStock: number
+  revenueByDay: { date: string; total: number }[]
+  ordersByStatus: { status: string; count: number }[]
+  topProducts: { name: string; quantity: number; revenue: number }[]
+  categoryDistribution: { name: string; value: number }[]
+  salesByCategory: { name: string; ventes: number }[]
+  unreadMessages: number
+  subscribers: number
+  pendingQuestions?: number
+}
+
+export type PageName =
+  | 'home'
+  | 'shop'
+  | 'categories'
+  | 'promotions'
+  | 'about'
+  | 'contact'
+  | 'faq'
+  | 'guide-tailles'
+  | 'terms'
+  | 'privacy'
+  | 'product'
+  | 'login'
+  | 'cart'
+  | 'checkout'
+  | 'orders'
+  | 'order-detail'
+  | 'tracking'
+  | 'wishlist'
+  | 'order-confirmation'
+  | 'fidelite'
+  | 'admin'
+  | 'admin-dashboard'
+  | 'admin-products'
+  | 'admin-categories'
+  | 'admin-orders'
+  | 'admin-reviews'
+  | 'admin-inventory'
+  | 'admin-messages'
+  | 'admin-emails'
+  | 'admin-promos'
+  | 'admin-settings'
+
+export interface RouteState {
+  page: PageName
+  params: Record<string, string>
+}
+
+export const STATUS_LABELS: Record<string, string> = {
+  confirmee: 'Confirmée',
+  expediee: 'Expédiée',
+  livree: 'Livrée',
+  annulee: 'Annulée',
+}
+
+export const STATUS_BADGE_CLASSES: Record<string, string> = {
+  confirmee: 'bg-blue-100 text-blue-800',
+  expediee: 'bg-indigo-100 text-indigo-800',
+  livree: 'bg-green-100 text-green-800',
+  annulee: 'bg-red-100 text-red-800',
 }
