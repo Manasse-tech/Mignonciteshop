@@ -894,7 +894,7 @@ export async function listPriceHistory(productId: string): Promise<PricePoint[]>
 
 export interface CreateOrderData {
   orderNumber: string
-  userId: string
+  userId: string | null
   customerName: string
   customerEmail: string
   phone: string | null

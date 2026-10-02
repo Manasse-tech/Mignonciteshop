@@ -8,7 +8,6 @@ import { formatPrice } from '@/lib/format'
 import { useToast } from '@/hooks/use-toast'
 import usePageMeta from '@/hooks/usePageMeta'
 import { useSessionGate } from '@/hooks/useSessionGate'
-import AuthGate from '@/components/pages/AuthGate'
 import { serverClear } from '@/lib/cartSync'
 
 interface LoyaltyBalance {
@@ -123,22 +122,14 @@ export default function CheckoutPage() {
     }
   }
 
-  // Murs de session (après TOUS les hooks — Rules of Hooks)
+  // Le paiement à la livraison est disponible sans compte. Les comptes connectés
+  // conservent la fidélité et l'historique synchronisés.
   if (sessionStatus === 'loading') {
     return (
       <div className="min-h-[50vh] flex items-center justify-center" role="status" aria-live="polite">
         <span className="sr-only">Vérification de la session…</span>
         <Loader2 className="w-8 h-8 animate-spin text-[#C9A961]" aria-hidden="true" />
       </div>
-    )
-  }
-  if (sessionStatus === 'anon') {
-    return (
-      <AuthGate
-        title="Finalisez votre commande"
-        message="Connectez-vous pour finaliser votre commande — vos informations et votre fidélité sont rattachées à votre compte."
-        returnTo="checkout"
-      />
     )
   }
 

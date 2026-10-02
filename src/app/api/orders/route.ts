@@ -80,9 +80,9 @@ export async function POST(req: NextRequest) {
   try {
     if (!rateLimit(clientKey(req, 'orders-post'), 10)) return tooManyRequests()
 
-    // Auth obligatoire (comportement original Base44 restauré)
+    // Le paiement à la livraison peut être utilisé sans créer de compte.
+    // Les paiements CinetPay restent réservés aux comptes authentifiés.
     const user = await getSessionUserLive(req)
-    if (!user) return unauthorized()
 
     const body = await req.json().catch(() => null)
     const parsed = ORDER_CREATE.safeParse(body)
@@ -90,6 +90,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: firstIssue(parsed) }, { status: 400 })
     }
     const input = parsed.data
+    if (!user && input.paymentMethod !== 'Paiement à la livraison') {
+      return unauthorized()
+    }
 
     // 1. Re-pricing : prix réels depuis la base (Firebase ou SQLite)
     const ids = [...new Set(input.items.map((i) => i.productId))]
@@ -134,6 +137,7 @@ export async function POST(req: NextRequest) {
     }
     let pointsDiscount = 0
     if (safePoints > 0) {
+      if (!user) return unauthorized()
       const { earned, used } = await loyaltyBalance(user.uid, user.email)
       const usableBlocks = Math.floor(Math.max(0, earned - used) / 100)
       if (safePoints > usableBlocks * 100) {
@@ -155,9 +159,9 @@ export async function POST(req: NextRequest) {
     try {
       const order = await createOrderWithStock({
         orderNumber: generateOrderNumber(),
-        userId: user.uid, // commande rattachée au compte connecté (scoping IDOR)
+        userId: user?.uid ?? null,
         customerName: input.customerName,
-        customerEmail: user.email, // email du compte, jamais celui posté par le client
+        customerEmail: user?.email ?? input.customerEmail,
         phone: input.phone || null,
         address: input.address,
         city: input.city,

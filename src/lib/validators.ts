@@ -23,7 +23,7 @@ export const ORDER_CREATE = z.object({
   postalCode: z.string().trim().max(20).optional().nullable(),
   country: z.string().trim().max(100).optional(),
   // Valeurs exactes envoyées par CheckoutPage (fidélité ZIP)
-  paymentMethod: z.enum(['Carte', 'PayPal', 'Paiement à la livraison']).optional(),
+  paymentMethod: z.enum(['CinetPay', 'Paiement à la livraison']).optional(),
   shippingMethod: z.enum(['standard', 'express', 'relais']).optional(),
   promoCode: z.string().trim().max(40).optional().nullable(),
   notes: z.string().trim().max(2000).optional().nullable(),
