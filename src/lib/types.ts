@@ -170,7 +170,6 @@ export type PageName =
   | 'admin-messages'
   | 'admin-emails'
   | 'admin-promos'
-  | 'admin-settings'
 
 export interface RouteState {
   page: PageName

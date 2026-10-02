@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import {
-  LayoutDashboard, Package, Layers, ShoppingCart, Star, Boxes, Store, LogOut, Menu, Mail, Ticket, Wifi, WifiOff, Loader2, Send, Settings,
+  LayoutDashboard, Package, Layers, ShoppingCart, Star, Boxes, Store, LogOut, Menu, Mail, Ticket, Wifi, WifiOff, Loader2, Send,
 } from 'lucide-react'
 import { useShopStore } from '@/store/useShopStore'
 import { useAdminAuthStore } from '@/store/useAdminAuthStore'
@@ -24,7 +24,6 @@ import InventoryAdmin from './InventoryAdmin'
 import MessagesAdmin from './MessagesAdmin'
 import EmailsAdmin from './EmailsAdmin'
 import PromosAdmin from './PromosAdmin'
-import SettingsAdmin from './SettingsAdmin'
 import type { Stats } from '@/lib/types'
 
 const ADMIN_NAV = [
@@ -37,7 +36,6 @@ const ADMIN_NAV = [
   { id: 'admin-inventory', label: 'Stock', icon: Boxes, badge: (s: Stats) => s.lowStock },
   { id: 'admin-messages', label: 'Messages', icon: Mail, badge: (s: Stats) => s.unreadMessages },
   { id: 'admin-emails', label: 'Emails', icon: Send },
-  { id: 'admin-settings', label: 'Boutique & WhatsApp', icon: Settings },
 ] as const
 
 function SidebarBadge({ count }: { count: number }) {
@@ -306,7 +304,6 @@ function AdminShellContent() {
           {page === 'admin-inventory' && <InventoryAdmin />}
           {page === 'admin-messages' && <MessagesAdmin />}
           {page === 'admin-emails' && <EmailsAdmin />}
-          {page === 'admin-settings' && <SettingsAdmin />}
         </div>
       </main>
     </div>

@@ -28,8 +28,6 @@ import LoyaltyPage from '@/components/pages/LoyaltyPage'
 import CompareBar from '@/components/shop/CompareBar'
 import ScrollExtras from '@/components/shop/ScrollExtras'
 import CookieConsent from '@/components/shop/CookieConsent'
-import { MessageCircle } from 'lucide-react'
-import { useEffect, useState } from 'react'
 import { bootstrapCartSync } from '@/lib/cartSync'
 import type { Category, Product, Review, PageName } from '@/lib/types'
 
@@ -130,13 +128,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
 export default function AppShell() {
   const { page, navigate, compare } = useShopStore()
-  const [whatsapp, setWhatsapp] = useState('2250700000000')
   const isAdmin = page.startsWith('admin')
-  useEffect(() => {
-    fetch('/api/settings').then((r) => r.ok ? r.json() : null).then((data) => {
-      if (data?.whatsapp) setWhatsapp(String(data.whatsapp).replace(/[^\d]/g, ''))
-    }).catch(() => {})
-  }, [])
   // Sur le panier et le checkout, on masque la barre comparateur (focus achat)
   const showCompareBar = compare.length > 0 && page !== 'cart' && page !== 'checkout' && page !== 'order-confirmation'
 
@@ -226,15 +218,6 @@ export default function AppShell() {
         </main>
         <Footer />
         {showCompareBar && <CompareBar />}
-        <a
-          href={`https://wa.me/${whatsapp}?text=Bonjour%20MignonciteShop%2C%20je%20souhaite%20des%20informations%20sur%20un%20produit.`}
-          target="_blank"
-          rel="noreferrer"
-          aria-label="Nous contacter sur WhatsApp"
-          className="fixed bottom-5 right-5 z-30 flex size-14 items-center justify-center rounded-full bg-[#25D366] text-white shadow-xl transition-transform hover:scale-110"
-        >
-          <MessageCircle aria-hidden="true" />
-        </a>
         <ScrollExtras />
         <CookieConsent />
       </div>

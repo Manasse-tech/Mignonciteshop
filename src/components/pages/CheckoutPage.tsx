@@ -1,13 +1,14 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Check, Banknote, Wallet, Truck, Loader2, ShieldCheck, Zap, Store, MapPin, Gift, Sparkles, ArrowLeft, Tag, CheckCircle2, Smartphone } from 'lucide-react'
+import { Check, CreditCard, Banknote, Wallet, Truck, Loader2, ShieldCheck, Zap, Store, MapPin, Gift, Sparkles, ArrowLeft, Tag, CheckCircle2 } from 'lucide-react'
 import { useShopStore, cartSubtotal, cartCount, promoDiscount, SHIPPING_METHODS, type ShippingMethodId } from '@/store/useShopStore'
 import { useAdminAuthStore } from '@/store/useAdminAuthStore'
 import { formatPrice } from '@/lib/format'
 import { useToast } from '@/hooks/use-toast'
 import usePageMeta from '@/hooks/usePageMeta'
 import { useSessionGate } from '@/hooks/useSessionGate'
+import AuthGate from '@/components/pages/AuthGate'
 import { serverClear } from '@/lib/cartSync'
 
 interface LoyaltyBalance {
@@ -38,7 +39,7 @@ export default function CheckoutPage() {
     city: '',
     postalCode: '',
     country: 'France',
-    paymentMethod: 'Paiement à la livraison',
+    paymentMethod: 'Carte',
     notes: '',
   })
 
@@ -122,13 +123,22 @@ export default function CheckoutPage() {
     }
   }
 
-  // Chaque commande est rattachée au compte client pour le suivi et l'historique.
+  // Murs de session (après TOUS les hooks — Rules of Hooks)
   if (sessionStatus === 'loading') {
     return (
       <div className="min-h-[50vh] flex items-center justify-center" role="status" aria-live="polite">
         <span className="sr-only">Vérification de la session…</span>
         <Loader2 className="w-8 h-8 animate-spin text-[#C9A961]" aria-hidden="true" />
       </div>
+    )
+  }
+  if (sessionStatus === 'anon') {
+    return (
+      <AuthGate
+        title="Finalisez votre commande"
+        message="Connectez-vous pour finaliser votre commande — vos informations et votre fidélité sont rattachées à votre compte."
+        returnTo="checkout"
+      />
     )
   }
 
@@ -185,10 +195,6 @@ export default function CheckoutPage() {
       })
       if (res.ok) {
         const order = await res.json()
-        if (order.paymentUrl) {
-          window.location.assign(order.paymentUrl)
-          return
-        }
         clearCart()
         // Purge du panier serveur (collection Cart) : sinon les articles
         // réapparaîtraient à la prochaine connexion sur un autre appareil.
@@ -209,7 +215,9 @@ export default function CheckoutPage() {
     'w-full h-11 px-3 rounded-lg border border-border bg-card text-sm focus:outline-none focus:border-[#C9A961] transition-colors'
 
   const PAYMENTS = [
-    { id: 'Paiement à la livraison', label: 'Paiement à la livraison', desc: 'Espèces à la réception — Côte d’Ivoire', icon: Banknote },
+    { id: 'Carte', label: 'Carte bancaire', desc: 'Visa, Mastercard, American Express', icon: CreditCard },
+    { id: 'PayPal', label: 'PayPal', desc: 'Paiement via votre compte PayPal', icon: Wallet },
+    { id: 'Paiement à la livraison', label: 'Paiement à la livraison', desc: 'Espèces ou carte à la réception (+2 €)', icon: Banknote },
   ]
 
   const SHIPPING_ICONS: Record<ShippingMethodId, typeof Truck> = {
@@ -319,7 +327,7 @@ export default function CheckoutPage() {
               {/* Mode de paiement (identique à l'original) */}
               <div className="bg-card rounded-2xl p-6 md:p-8 shadow-sm">
                 <h2 className="text-xl font-bold text-foreground mb-6 flex items-center gap-2">
-                    <Banknote className="w-5 h-5 text-[#C9A961]" /> Mode de paiement
+                  <CreditCard className="w-5 h-5 text-[#C9A961]" /> Mode de paiement
                 </h2>
                 <div className="space-y-3">
                   {PAYMENTS.map((pm) => (
@@ -353,7 +361,8 @@ export default function CheckoutPage() {
                 <div className="mt-6 flex items-start gap-3 bg-muted/50 rounded-xl p-4">
                   <ShieldCheck className="w-5 h-5 text-[#C9A961] flex-shrink-0 mt-0.5" />
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    Votre commande est confirmée après validation de vos informations. Le paiement se fait en espèces à la livraison, en Côte d&apos;Ivoire.
+                    Vos transactions sont protégées par un cryptage SSL 256 bits. C&apos;est une boutique de démonstration :
+                    aucun paiement réel n&apos;est effectué.
                   </p>
                 </div>
               </div>
